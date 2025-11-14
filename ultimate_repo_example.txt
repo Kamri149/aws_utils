@@ -1,89 +1,89 @@
-Ultimate repo example:
-
 trading-platform/
-  pyproject.toml / setup.cfg / requirements.txt
+  pyproject.toml              # package metadata, deps
+  README.md
 
-  trading/                     # Python package
+  trading/                    # main Python package
     __init__.py
 
-    config/                    # YAML / pydantic configs
-      markets/
-        binance_spot_eth.yaml
-        binance_spot_btc.yaml
-        equities_usa.yaml
-      bots/
-        eth_meanrev_v1.yaml
-        btc_trend_v2.yaml
-        equities_value_long.yaml
+    config/
+      __init__.py
+      storage.py              # STORAGE = StorageConfig(...)
+      market.py               # (optional later: per-exchange configs)
 
     data/
+      __init__.py
+      lake_layout.py          # helpers to build S3 paths
       loaders/
-        binance_trades.py
-        binance_klines.py
-        equities_prices.py
-      schemas.py               # common bar/trade schemas
-      lake_layout.py           # S3 paths, Glue table names
+        __init__.py
+        binance_trades.py     # raw trades loader (Spark / pandas)
+        ohlcv_loader.py       # curated OHLCV loader (pandas for backtest)
+        equities_prices.py    # later
 
     features/
-      common_features.py       # generic: returns, vol, skew, etc.
-      crypto_features.py       # funding, perp-specific stuff
-      equities_features.py     # fundamentals, sectors etc.
-      windows.py               # your windowing + metrics / clustering prep
-      metrics_registry.py      # the thing we’re building
+      __init__.py
+      windows.py              # add_returns, add_time_buckets (Spark)
+      metrics_registry.py     # MetricDefinition + METRICS + compute_metrics_pandas
+      snapshots.py            # compute_input_snapshot_id(df)
+      export_metric_definitions.py  # write METRICS → meta/metric_definitions/*.parquet
 
-    backtest/
-      engine.py
-      portfolio.py
-      slippage_fees.py
+    runs/
+      __init__.py
+      run_logging.py          # log_window_metric_run(...) → meta/metric_runs/
+
+    domain/
+      __init__.py
+      types.py                # Bar, Order, Position, AccountState
+
+    interfaces/
+      __init__.py
+      core.py                 # DataLoader, ExecutionClient, Strategy ABCs
 
     execution/
-      binance_execution.py
-      equities_broker_api.py
-      throttling.py
-      order_models.py
+      __init__.py
+      paper.py                # PaperExecutionClient
+      binance_client.py       # (later) real Binance ExecutionClient
+      equities_broker_client.py  # (later)
 
-    risk/
-      limits.py
-      exposure.py
-      stop_out.py
+    backtest/
+      __init__.py
+      runner.py               # run_backtest(...)
 
     strategies/
+      __init__.py
       crypto/
-        eth_meanrev/
-          strategy.py
-          signal.py
-          config.py
-        btc_trend/
+        __init__.py
+        eth_cluster_bot/
+          __init__.py
+          strategy.py         # ETHClusterBot(Strategy)
+          config.yaml         # strategy-specific config
+        btc_trend_bot/
+          __init__.py
           strategy.py
       equities/
-        long_short_value/
-          strategy.py
-        momentum_intraday/
+        __init__.py
+        value_long/
+          __init__.py
           strategy.py
 
     monitoring/
-      metrics_emit.py           # push to CloudWatch / Prometheus
-      health_checks.py
+      __init__.py
+      metrics_emit.py         # later: push to CloudWatch etc.
 
-    infra/
-      aws/
-        emr/
-          cluster_templates/
-        lambda/
-        step_functions/
-        cloudformation/terraform_scripts/
+  jobs/                       # entrypoints you submit / schedule
+    build_ohlcv_from_trades.py        # raw trades → curated ohlcv_1s (Spark)
+    compute_window_metrics_spark.py   # uses windows.py + metrics_registry.py
+    train_clustering_model.py         # later: offline training
+    run_backtest.py                   # wires DataLoader + Strategy + PaperExecutionClient
+    run_live_bot.py                   # wires DataLoader + Strategy + real ExecutionClient
 
-  jobs/                         # entrypoints for EMR / batch / step functions
-    build_ohlcv_from_trades.py
-    compute_window_metrics_spark.py
-    train_clustering_model.py
-    run_live_bot.py
-    run_paper_trading.py
+  infra/
+    cloudformation/
+      trading_emr_cluster.yaml
+      trading_emr_studio.yaml
+    scripts/
+      package_for_emr.sh
+      deploy_cluster.sh
 
   notebooks/
     research_crypto/
     research_equities/
-
-  scripts/
-    package_for_emr.sh
-    deploy_cloudformation.sh
