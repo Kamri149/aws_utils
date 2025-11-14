@@ -1,0 +1,7 @@
+trading/config/
+    storage.py              # S3 bucket layout
+    market.py               # per-exchange or per-asset-type config
+    strategy.py             # common strategy config types
+    risk.py                 # global risk limits
+    training.py             # model training configs
+    cluster.py              # Spark cluster / EMR config (optional)
