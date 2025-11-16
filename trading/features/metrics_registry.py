@@ -21,18 +21,6 @@ def skew_udf(x: pd.Series) -> float:
 def kurtosis_udf(x: pd.Series) -> float:
     return float(kurtosis(x.dropna())) if len(x.dropna()) > 0 else np.nan
 
-
-@dataclass(frozen=True)
-class MetricDefinition:
-    metric_id: str
-    description: str
-    entity_type: str              # 'price', 'book', 'funding', 'oi', 'liq'
-    granularity: List[str]
-    version: str
-    spark_agg: Callable[[Any], Any]         # df -> Column
-    pandas_fn: Optional[Callable[[pd.DataFrame], Any]] = None
-
-
 # -------- Registry content (your metrics) --------
 METRICS: Dict[str, MetricDefinition] = {}
 
