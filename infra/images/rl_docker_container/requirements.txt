@@ -1,0 +1,17 @@
+# Core DS
+numpy
+pandas
+pyarrow
+scipy
+boto3
+s3fs
+
+# RL / ML
+gymnasium
+ray[rllib]
+torch
+
+# Notebook
+jupyterlab
+ipykernel
+matplotlib
