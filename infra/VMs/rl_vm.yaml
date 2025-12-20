@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: "2010-09-09"
-Description: TradingBot Single VM Stack (EC2) using the SAME Instance Profile as EMR master node (Docker + ECR + systemd)
+Description: TradingBot Single VM (EC2) using SAME Instance Profile as EMR master node (Docker + ECR + systemd)
 
 Parameters:
   VpcId:
@@ -18,7 +18,7 @@ Parameters:
   EMREC2InstanceProfileArn:
     Type: String
     Default: arn:aws:iam::495736631375:instance-profile/EMR_EC2_DefaultRole
-    Description: Use the exact instance profile from your EMR cluster (so permissions match master node)
+    Description: Instance profile ARN (same as EMR master node)
 
   InstanceType:
     Type: String
@@ -48,7 +48,7 @@ Parameters:
   AllowSshCidr:
     Type: String
     Default: "0.0.0.0/32"
-    Description: Put your IP/32 if you want SSH. Keep /32 to effectively disable SSH.
+    Description: Your IP/32 for SSH. Keep as /32 to effectively disable SSH.
 
   AwsRegion:
     Type: String
@@ -57,6 +57,11 @@ Parameters:
   EcrRepoName:
     Type: String
     Default: trading-platform-rl
+
+  # ✅ This MUST be a Parameter (not a Resource)
+  NotebookAmiId:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-6.1-x86_64
 
 Resources:
   NotebookInstanceSG:
@@ -72,10 +77,6 @@ Resources:
       SecurityGroupEgress:
         - IpProtocol: -1
           CidrIp: 0.0.0.0/0
-
-  NotebookAmiId:
-    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
-    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-6.1-x86_64
 
   NotebookInstance:
     Type: AWS::EC2::Instance
