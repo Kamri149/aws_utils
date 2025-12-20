@@ -14,9 +14,9 @@ Parameters:
     Type: AWS::EC2::KeyPair::KeyName
     Default: eth-emr-key
 
-  EMREC2InstanceProfileArn:
+  EMREC2InstanceProfileName:
     Type: String
-    Default: arn:aws:iam::495736631375:instance-profile/EMR_EC2_DefaultRole
+    Default: EMR_EC2_DefaultRole
 
   InstanceType:
     Type: String
@@ -81,7 +81,7 @@ Resources:
       InstanceType: !Ref InstanceType
       SubnetId: !Ref SubnetId
       KeyName: !Ref KeyName
-      IamInstanceProfile: !Ref EMREC2InstanceProfileArn
+      IamInstanceProfile: !Ref EMREC2InstanceProfileName
       SecurityGroupIds:
         - !Ref NotebookInstanceSG
 
