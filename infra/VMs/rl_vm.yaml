@@ -2,6 +2,9 @@ AWSTemplateFormatVersion: "2010-09-09"
 Description: TradingBot Single VM (EC2) using SAME Instance Profile as EMR master node (Docker + ECR + systemd)
 
 Parameters:
+  Conditions:
+    EnableSSH: !Not [!Equals [!Ref AllowSshCidr, "0.0.0.0/32"]]
+    
   VpcId:
     Type: AWS::EC2::VPC::Id
     Description: Existing VPC ID
@@ -65,11 +68,14 @@ Resources:
     Properties:
       GroupDescription: Single VM SG (SSH optional; Jupyter via SSM port-forward)
       VpcId: !Ref VpcId
-      SecurityGroupIngress:
-        - IpProtocol: tcp
-          FromPort: 22
-          ToPort: 22
-          CidrIp: !Ref AllowSshCidr
+      SecurityGroupIngress: !If
+        - EnableSSH
+        - - IpProtocol: tcp
+            FromPort: 22
+            ToPort: 22
+            CidrIp: !Ref AllowSshCidr
+        - !Ref "AWS::NoValue"
+        
       SecurityGroupEgress:
         - IpProtocol: -1
           CidrIp: 0.0.0.0/0
