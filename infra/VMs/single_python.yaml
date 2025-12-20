@@ -1,0 +1,173 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: TradingBot Single VM Stack (EC2) using the SAME Instance Profile as EMR master node
+
+Parameters:
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: Existing VPC ID
+
+  SubnetId:
+    Type: AWS::EC2::Subnet::Id
+    Description: Subnet for the instance
+    Default: subnet-0a568c53670a616fc
+
+  KeyName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: Key pair for SSH access (recommended even if you plan to use SSM)
+    Default: eth-emr-key
+
+  # IMPORTANT: This is the SAME instance profile used by your EMR cluster nodes.
+  # Default matches your cluster template.
+  EMREC2InstanceProfileArn:
+    Type: String
+    Default: arn:aws:iam::495736631375:instance-profile/EMR_EC2_DefaultRole
+    Description: Instance Profile ARN (use the exact one from EMR so permissions match the master node)
+
+  InstanceType:
+    Type: String
+    Default: m6i.large
+    AllowedValues:
+      - t3.medium
+      - t3.large
+      - m6i.large
+      - m6i.xlarge
+      - r6i.large
+      - r6i.xlarge
+      - r6i.2xlarge
+      - m5.2xlarge
+    Description: EC2 instance type
+
+  VolumeSizeGiB:
+    Type: Number
+    Default: 200
+    Description: Root EBS volume size (GiB)
+
+  VolumeIops:
+    Type: Number
+    Default: 6000
+    Description: gp3 IOPS
+
+  VolumeThroughput:
+    Type: Number
+    Default: 250
+    Description: gp3 throughput (MiB/s)
+
+  AllowSshCidr:
+    Type: String
+    Default: "0.0.0.0/32"
+    Description: Your public IP /32 for SSH (set this to your IP). Keep as /32 to effectively disable SSH.
+
+Resources:
+  NotebookInstanceSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Single VM SG (SSH only; Jupyter stays on localhost via tunnel)
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: !Ref AllowSshCidr
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Project
+          Value: TradingBot
+
+  # Latest Amazon Linux 2023 AMI via public SSM parameter
+  NotebookAmiId:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-6.1-x86_64
+
+  NotebookInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref NotebookAmiId
+      InstanceType: !Ref InstanceType
+      SubnetId: !Ref SubnetId
+      KeyName: !Ref KeyName
+
+      # This is the critical line: identical permissions to EMR master node
+      IamInstanceProfile: !Ref EMREC2InstanceProfileArn
+
+      SecurityGroupIds:
+        - !Ref NotebookInstanceSG
+
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            VolumeType: gp3
+            VolumeSize: !Ref VolumeSizeGiB
+            Iops: !Ref VolumeIops
+            Throughput: !Ref VolumeThroughput
+            DeleteOnTermination: true
+
+      MetadataOptions:
+        HttpTokens: required
+
+      Tags:
+        - Key: Name
+          Value: !Sub "tradingbot-single-vm-${AWS::StackName}"
+        - Key: Project
+          Value: TradingBot
+
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          set -euo pipefail
+
+          # Base tooling
+          dnf update -y
+          dnf install -y python3 python3-pip git tmux
+
+          # Python venv for notebooks
+          python3 -m venv /opt/notebook-venv
+          source /opt/notebook-venv/bin/activate
+          pip install --upgrade pip
+
+          # Minimal stack for notebooks + S3/Glue/Athena clients via boto3
+          pip install jupyterlab ipykernel pandas pyarrow boto3 s3fs awswrangler
+
+          # Register kernel
+          python -m ipykernel install --sys-prefix --name notebook-venv --display-name "Python (notebook-venv)"
+
+          # Jupyter launcher (bind to localhost; tunnel in via SSH or SSM port-forward)
+          cat >/usr/local/bin/start-jupyter.sh <<'EOF'
+          #!/bin/bash
+          set -euo pipefail
+          source /opt/notebook-venv/bin/activate
+          mkdir -p /home/ec2-user/notebooks
+          cd /home/ec2-user/notebooks
+          exec jupyter lab --no-browser --ip 127.0.0.1 --port 8888
+          EOF
+          chmod +x /usr/local/bin/start-jupyter.sh
+          chown ec2-user:ec2-user /home/ec2-user/notebooks
+
+          echo "Start Jupyter: sudo -u ec2-user /usr/local/bin/start-jupyter.sh"
+          echo "Then tunnel from your laptop and open: http://127.0.0.1:8888"
+
+Outputs:
+  InstanceId:
+    Description: EC2 Instance ID
+    Value: !Ref NotebookInstance
+
+  PrivateIp:
+    Description: Private IP address
+    Value: !GetAtt NotebookInstance.PrivateIp
+
+  StartJupyterOnInstance:
+    Description: Run this on the instance (SSH in first)
+    Value: "sudo -u ec2-user /usr/local/bin/start-jupyter.sh"
+
+  SshTunnelCommand:
+    Description: Run this on your laptop to tunnel Jupyter (after starting Jupyter on the instance)
+    Value: !Sub "ssh -i /path/to/${KeyName}.pem -L 8888:127.0.0.1:8888 ec2-user@<PUBLIC_IP>"
+
+  # SSM port-forwarding will work IF your EMR_EC2_DefaultRole already includes AmazonSSMManagedInstanceCore
+  SsmPortForwardCommand:
+    Description: Use this if the instance is reachable via Session Manager
+    Value: !Sub >
+      aws ssm start-session --target ${NotebookInstance}
+      --document-name AWS-StartPortForwardingSession
+      --parameters '{"portNumber":["8888"],"localPortNumber":["8888"]}'
