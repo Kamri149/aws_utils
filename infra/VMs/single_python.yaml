@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: "2010-09-09"
-Description: TradingBot Single VM Stack (EC2) using the SAME Instance Profile as EMR master node
+Description: TradingBot Single VM Stack (EC2) using the SAME Instance Profile as EMR master node (Docker + ECR + systemd)
 
 Parameters:
   VpcId:
@@ -18,10 +18,20 @@ Parameters:
   EMREC2InstanceProfileArn:
     Type: String
     Default: arn:aws:iam::495736631375:instance-profile/EMR_EC2_DefaultRole
+    Description: Use the exact instance profile from your EMR cluster (so permissions match master node)
 
   InstanceType:
     Type: String
     Default: m6i.large
+    AllowedValues:
+      - t3.medium
+      - t3.large
+      - m6i.large
+      - m6i.xlarge
+      - r6i.large
+      - r6i.xlarge
+      - r6i.2xlarge
+      - m5.2xlarge
 
   VolumeSizeGiB:
     Type: Number
@@ -38,21 +48,21 @@ Parameters:
   AllowSshCidr:
     Type: String
     Default: "0.0.0.0/32"
-
-  # --- Docker / ECR parameters ---
-  EcrRepoName:
-    Type: String
-    Default: trading-platform
+    Description: Put your IP/32 if you want SSH. Keep /32 to effectively disable SSH.
 
   AwsRegion:
     Type: String
     Default: eu-west-2
 
+  EcrRepoName:
+    Type: String
+    Default: trading-platform-rl
+
 Resources:
   NotebookInstanceSG:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupDescription: Single VM SG (SSH optional; Jupyter via SSM)
+      GroupDescription: Single VM SG (SSH optional; Jupyter via SSM port-forward)
       VpcId: !Ref VpcId
       SecurityGroupIngress:
         - IpProtocol: tcp
@@ -107,18 +117,15 @@ Resources:
           CONTAINER_NAME="rl-notebook"
           PORT="8888"
 
-          # ---- Install Docker ----
           dnf update -y
           dnf install -y docker
           systemctl enable docker
           systemctl start docker
           usermod -aG docker ec2-user
 
-          # ---- Persistent notebooks directory ----
           mkdir -p "${NOTEBOOK_DIR}"
           chown -R ec2-user:ec2-user "${NOTEBOOK_DIR}"
 
-          # ---- ECR login + pull ----
           ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
           ECR_URI="${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/${REPO_NAME}"
 
@@ -127,7 +134,6 @@ Resources:
 
           docker pull "${ECR_URI}:latest"
 
-          # ---- systemd service ----
           cat >/etc/systemd/system/rl-notebook.service <<EOF
           [Unit]
           Description=RL Jupyter Notebook Container
@@ -156,9 +162,11 @@ Resources:
 
 Outputs:
   InstanceId:
+    Description: EC2 Instance ID
     Value: !Ref NotebookInstance
 
   SsmPortForwardCommand:
+    Description: Port-forward Jupyter to localhost:8888
     Value: !Sub >
       aws ssm start-session --target ${NotebookInstance}
       --document-name AWS-StartPortForwardingSession
