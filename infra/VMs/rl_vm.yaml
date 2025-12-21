@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: "2010-09-09"
-Description: TradingBot Single VM (EC2) - Docker+ECR+systemd, hardened for common org CFN hooks (no public IP, encrypted EBS, IMDSv2)
+Description: TradingBot Single VM (EC2) - Docker+ECR+systemd, hardened; no public IP; encrypted EBS; IMDSv2
 
 Parameters:
   VpcId:
@@ -11,13 +11,11 @@ Parameters:
     Description: Subnet for the instance
     Default: subnet-0a568c53670a616fc
 
-  # Only used if SSH is enabled
   KeyName:
     Type: AWS::EC2::KeyPair::KeyName
     Description: Key pair for SSH access (only applied if AllowSshCidr != 0.0.0.0/32)
     Default: eth-emr-key
 
-  # EC2::Instance expects instance profile NAME, not ARN
   EMREC2InstanceProfileName:
     Type: String
     Default: EMR_EC2_DefaultRole
@@ -43,15 +41,12 @@ Parameters:
   VolumeIops:
     Type: Number
     Default: 6000
+    Description: gp3 IOPS (remove from template too if validation complains)
 
-  VolumeThroughput:
-    Type: Number
-    Default: 250
-
-  # SSH disabled by default. Set to your real public IP/32 to enable.
   AllowSshCidr:
     Type: String
     Default: "0.0.0.0/32"
+    Description: Set to your public IP/32 to enable SSH. Leave default to create NO inbound rules.
 
   AwsRegion:
     Type: String
@@ -97,12 +92,10 @@ Resources:
       ImageId: !Ref NotebookAmiId
       InstanceType: !Ref InstanceType
 
-      # Only set KeyName if SSH is enabled (some hooks reject KeyName otherwise)
       KeyName: !If [EnableSSH, !Ref KeyName, !Ref "AWS::NoValue"]
 
       IamInstanceProfile: !Ref EMREC2InstanceProfileName
 
-      # Force NO public IP (common org policy hook)
       NetworkInterfaces:
         - DeviceIndex: 0
           SubnetId: !Ref SubnetId
@@ -117,11 +110,9 @@ Resources:
             VolumeType: gp3
             VolumeSize: !Ref VolumeSizeGiB
             Iops: !Ref VolumeIops
-            Throughput: !Ref VolumeThroughput
             Encrypted: true
             DeleteOnTermination: true
 
-      # Fully specify IMDS options (common hook requirement)
       MetadataOptions:
         HttpEndpoint: enabled
         HttpTokens: required
@@ -199,7 +190,7 @@ Outputs:
     Value: !GetAtt NotebookInstance.PrivateIp
 
   SsmPortForwardCommand:
-    Description: Port-forward Jupyter to localhost:8888 (requires SSM permissions on instance role)
+    Description: Port-forward Jupyter to localhost:8888
     Value: !Sub >
       aws ssm start-session --target ${NotebookInstance}
       --document-name AWS-StartPortForwardingSession
