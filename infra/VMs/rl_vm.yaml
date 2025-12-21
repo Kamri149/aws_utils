@@ -101,7 +101,7 @@ Resources:
           SubnetId: !Ref SubnetId
           GroupSet:
             - !Ref NotebookInstanceSG
-          AssociatePublicIpAddress: false
+          AssociatePublicIpAddress: true
           DeleteOnTermination: true
 
       BlockDeviceMappings:
