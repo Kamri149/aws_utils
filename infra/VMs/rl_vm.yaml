@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: "2010-09-09"
-Description: TradingBot Single VM (EC2) using SAME Instance Profile as EMR master node (Docker + ECR + systemd; no inbound by default)
+Description: TradingBot Single VM (EC2) - Docker+ECR+systemd, hardened for common org CFN hooks (no public IP, encrypted EBS, IMDSv2)
 
 Parameters:
   VpcId:
@@ -11,16 +11,17 @@ Parameters:
     Description: Subnet for the instance
     Default: subnet-0a568c53670a616fc
 
+  # Only used if SSH is enabled
   KeyName:
     Type: AWS::EC2::KeyPair::KeyName
-    Description: Key pair for SSH access (optional if using SSM only)
+    Description: Key pair for SSH access (only applied if AllowSshCidr != 0.0.0.0/32)
     Default: eth-emr-key
 
-  # Use the INSTANCE PROFILE NAME (not ARN) for EC2::Instance.IamInstanceProfile
+  # EC2::Instance expects instance profile NAME, not ARN
   EMREC2InstanceProfileName:
     Type: String
     Default: EMR_EC2_DefaultRole
-    Description: Instance profile NAME (same as EMR master node profile)
+    Description: Instance profile NAME (same as EMR master node)
 
   InstanceType:
     Type: String
@@ -34,28 +35,23 @@ Parameters:
       - r6i.xlarge
       - r6i.2xlarge
       - m5.2xlarge
-    Description: EC2 instance type
 
   VolumeSizeGiB:
     Type: Number
     Default: 200
-    Description: Root EBS volume size (GiB)
 
   VolumeIops:
     Type: Number
     Default: 6000
-    Description: gp3 IOPS
 
   VolumeThroughput:
     Type: Number
     Default: 250
-    Description: gp3 throughput (MiB/s)
 
-  # SSH is disabled by default (no inbound rules created when left as 0.0.0.0/32)
+  # SSH disabled by default. Set to your real public IP/32 to enable.
   AllowSshCidr:
     Type: String
     Default: "0.0.0.0/32"
-    Description: Set to your public IP/32 to enable SSH. Leave default to create NO inbound rules.
 
   AwsRegion:
     Type: String
@@ -65,7 +61,6 @@ Parameters:
     Type: String
     Default: trading-platform-rl
 
-  # Latest Amazon Linux 2023 AMI via public SSM parameter
   NotebookAmiId:
     Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
     Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-6.1-x86_64
@@ -77,10 +72,9 @@ Resources:
   NotebookInstanceSG:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupDescription: Single VM SG (no inbound by default; Jupyter via SSM port-forward)
+      GroupDescription: Single VM SG (no inbound by default; SSH optional; Jupyter via SSM port-forward)
       VpcId: !Ref VpcId
 
-      # Create SSH rule ONLY when AllowSshCidr is set to something other than 0.0.0.0/32
       SecurityGroupIngress: !If
         - EnableSSH
         - - IpProtocol: tcp
@@ -102,14 +96,20 @@ Resources:
     Properties:
       ImageId: !Ref NotebookAmiId
       InstanceType: !Ref InstanceType
-      SubnetId: !Ref SubnetId
-      KeyName: !Ref KeyName
 
-      # Instance profile NAME (must be name, not ARN)
+      # Only set KeyName if SSH is enabled (some hooks reject KeyName otherwise)
+      KeyName: !If [EnableSSH, !Ref KeyName, !Ref "AWS::NoValue"]
+
       IamInstanceProfile: !Ref EMREC2InstanceProfileName
 
-      SecurityGroupIds:
-        - !Ref NotebookInstanceSG
+      # Force NO public IP (common org policy hook)
+      NetworkInterfaces:
+        - DeviceIndex: 0
+          SubnetId: !Ref SubnetId
+          GroupSet:
+            - !Ref NotebookInstanceSG
+          AssociatePublicIpAddress: false
+          DeleteOnTermination: true
 
       BlockDeviceMappings:
         - DeviceName: /dev/xvda
@@ -118,10 +118,15 @@ Resources:
             VolumeSize: !Ref VolumeSizeGiB
             Iops: !Ref VolumeIops
             Throughput: !Ref VolumeThroughput
+            Encrypted: true
             DeleteOnTermination: true
 
+      # Fully specify IMDS options (common hook requirement)
       MetadataOptions:
+        HttpEndpoint: enabled
         HttpTokens: required
+        HttpPutResponseHopLimit: 2
+        InstanceMetadataTags: enabled
 
       Tags:
         - Key: Name
@@ -134,7 +139,6 @@ Resources:
           #!/bin/bash
           set -euo pipefail
 
-          # Only these come from CloudFormation:
           REGION='${AwsRegion}'
           REPO_NAME='${EcrRepoName}'
 
@@ -142,18 +146,15 @@ Resources:
           CONTAINER_NAME="rl-notebook"
           PORT="8888"
 
-          # ---- Install Docker ----
           dnf update -y
           dnf install -y docker
           systemctl enable docker
           systemctl start docker
           usermod -aG docker ec2-user
 
-          # ---- Persistent notebooks directory ----
           mkdir -p "$NOTEBOOK_DIR"
           chown -R ec2-user:ec2-user "$NOTEBOOK_DIR"
 
-          # ---- ECR login + pull ----
           ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
           ECR_URI="$ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com/$REPO_NAME"
 
@@ -162,7 +163,6 @@ Resources:
 
           docker pull "$ECR_URI:latest"
 
-          # ---- systemd service to keep container alive ----
           cat >/etc/systemd/system/rl-notebook.service <<EOF
           [Unit]
           Description=RL Jupyter Notebook Container
@@ -199,16 +199,12 @@ Outputs:
     Value: !GetAtt NotebookInstance.PrivateIp
 
   SsmPortForwardCommand:
-    Description: Port-forward Jupyter to localhost:8888 (requires SSM agent + permissions on instance role)
+    Description: Port-forward Jupyter to localhost:8888 (requires SSM permissions on instance role)
     Value: !Sub >
       aws ssm start-session --target ${NotebookInstance}
       --document-name AWS-StartPortForwardingSession
       --parameters '{"portNumber":["8888"],"localPortNumber":["8888"]}'
 
-  DockerServiceStatus:
-    Description: Check the service on the instance
-    Value: "sudo systemctl status rl-notebook.service"
-
   JupyterLogsCommand:
     Description: Get Jupyter token URL from container logs (run on instance)
-    Value: "sudo docker logs rl-notebook --tail 80"
+    Value: "sudo docker logs rl-notebook --tail 120"
