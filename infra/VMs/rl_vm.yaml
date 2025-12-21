@@ -1,8 +1,5 @@
 AWSTemplateFormatVersion: "2010-09-09"
-Description: >
-  TradingBot Single VM (EC2) - Public IP + optional SSH (recommended for now),
-  Docker+ECR+systemd to run Jupyter container bound to localhost.
-  Later: switch to SSM-only once Session Manager is confirmed working.
+Description: TradingBot Single VM (EC2) - Docker+ECR+systemd, hardened; PUBLIC IP; encrypted EBS; IMDSv2; SSH optional
 
 Parameters:
   VpcId:
@@ -11,20 +8,18 @@ Parameters:
 
   SubnetId:
     Type: AWS::EC2::Subnet::Id
-    Description: Public subnet for the instance (route 0.0.0.0/0 -> IGW)
+    Description: Subnet for the instance
+    Default: subnet-0a568c53670a616fc
 
-  # SSH keypair is only used if EnableSSH is true (AllowSshCidr != 0.0.0.0/32)
   KeyName:
     Type: AWS::EC2::KeyPair::KeyName
+    Description: Key pair for SSH access (only applied if AllowSshCidr != 0.0.0.0/32)
     Default: tradingbot-notebook
-    Description: Key pair name for SSH (only applied if SSH is enabled)
 
-  # IMPORTANT: must be the INSTANCE PROFILE name (not role name).
-  # In your case this is typically EMR_EC2_DefaultRole (instance-profile)
-  InstanceProfileName:
+  EMREC2InstanceProfileName:
     Type: String
     Default: EMR_EC2_DefaultRole
-    Description: EC2 Instance Profile NAME (same as EMR master node instance profile)
+    Description: Instance profile NAME (same as EMR master node)
 
   InstanceType:
     Type: String
@@ -42,22 +37,16 @@ Parameters:
   VolumeSizeGiB:
     Type: Number
     Default: 200
-    Description: Root EBS size (GiB)
 
   VolumeIops:
     Type: Number
     Default: 6000
-    Description: gp3 IOPS
-
-  VolumeThroughput:
-    Type: Number
-    Default: 250
-    Description: gp3 throughput (MiB/s)
+    Description: gp3 IOPS (remove from template too if validation complains)
 
   AllowSshCidr:
     Type: String
     Default: "0.0.0.0/32"
-    Description: Set to your PUBLIC_IP/32 to enable SSH (e.g. 1.2.3.4/32). Default disables inbound.
+    Description: Set to your public IP/32 to enable SSH. Leave default to create NO inbound rules.
 
   AwsRegion:
     Type: String
@@ -78,8 +67,7 @@ Resources:
   NotebookInstanceSG:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupDescription: >
-        Single VM SG. SSH inbound optional. No inbound for Jupyter (Jupyter stays on localhost).
+      GroupDescription: Single VM SG (no inbound by default; SSH optional; Jupyter via localhost tunnel)
       VpcId: !Ref VpcId
 
       SecurityGroupIngress: !If
@@ -104,11 +92,10 @@ Resources:
       ImageId: !Ref NotebookAmiId
       InstanceType: !Ref InstanceType
 
-      # KeyName only when SSH enabled; otherwise omit.
+      # Only set KeyName when SSH is enabled (prevents accidental “I thought SSH was on” confusion)
       KeyName: !If [EnableSSH, !Ref KeyName, !Ref "AWS::NoValue"]
 
-      # Instance profile name (must exist)
-      IamInstanceProfile: !Ref InstanceProfileName
+      IamInstanceProfile: !Ref EMREC2InstanceProfileName
 
       NetworkInterfaces:
         - DeviceIndex: 0
@@ -124,7 +111,6 @@ Resources:
             VolumeType: gp3
             VolumeSize: !Ref VolumeSizeGiB
             Iops: !Ref VolumeIops
-            Throughput: !Ref VolumeThroughput
             Encrypted: true
             DeleteOnTermination: true
 
@@ -132,6 +118,7 @@ Resources:
         HttpEndpoint: enabled
         HttpTokens: required
         HttpPutResponseHopLimit: 2
+        InstanceMetadataTags: enabled
 
       Tags:
         - Key: Name
@@ -151,29 +138,23 @@ Resources:
           CONTAINER_NAME="rl-notebook"
           PORT="8888"
 
-          # Update + install Docker
-          dnf clean all || true
-          dnf -y update
-          dnf -y install docker
-          systemctl enable --now docker
-
-          # Allow ec2-user to run docker without sudo (next login picks this up)
-          usermod -aG docker ec2-user || true
+          dnf update -y
+          dnf install -y docker
+          systemctl enable docker
+          systemctl start docker
+          usermod -aG docker ec2-user
 
           mkdir -p "$NOTEBOOK_DIR"
           chown -R ec2-user:ec2-user "$NOTEBOOK_DIR"
 
-          # Build ECR URI dynamically (no CFN pseudo for account id in UserData)
           ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
           ECR_URI="$ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com/$REPO_NAME"
 
-          # Login + pull
           aws ecr get-login-password --region "$REGION" \
             | docker login --username AWS --password-stdin "$ECR_URI"
 
           docker pull "$ECR_URI:latest"
 
-          # systemd service to keep container alive across reboots
           cat >/etc/systemd/system/rl-notebook.service <<EOF
           [Unit]
           Description=RL Jupyter Notebook Container
@@ -183,49 +164,53 @@ Resources:
           [Service]
           Restart=always
           RestartSec=5
-          ExecStartPre=-/usr/bin/docker rm -f ${CONTAINER_NAME}
-          ExecStartPre=/usr/bin/docker pull ${ECR_URI}:latest
-          ExecStart=/usr/bin/docker run --name ${CONTAINER_NAME} \
-            -p 127.0.0.1:${PORT}:${PORT} \
-            -v ${NOTEBOOK_DIR}:/app/notebooks \
-            -e AWS_REGION=${REGION} \
-            ${ECR_URI}:latest
-          ExecStop=/usr/bin/docker stop ${CONTAINER_NAME}
+          ExecStartPre=-/usr/bin/docker rm -f $CONTAINER_NAME
+          ExecStartPre=/usr/bin/docker pull $ECR_URI:latest
+          ExecStart=/usr/bin/docker run --name $CONTAINER_NAME \
+            -p 127.0.0.1:$PORT:$PORT \
+            -v $NOTEBOOK_DIR:/app/notebooks \
+            -e AWS_REGION=$REGION \
+            $ECR_URI:latest
+          ExecStop=/usr/bin/docker stop $CONTAINER_NAME
 
           [Install]
           WantedBy=multi-user.target
           EOF
 
           systemctl daemon-reload
-          systemctl enable --now rl-notebook.service
+          systemctl enable rl-notebook.service
+          systemctl start rl-notebook.service
 
 Outputs:
   InstanceId:
     Description: EC2 Instance ID
     Value: !Ref NotebookInstance
 
+  PrivateIp:
+    Description: Private IP address
+    Value: !GetAtt NotebookInstance.PrivateIp
+
   PublicIp:
-    Description: Public IP address
+    Description: Public IPv4 address (this is the “public address” you SSH to)
     Value: !GetAtt NotebookInstance.PublicIp
 
   SshCommand:
-    Description: SSH command (works only if AllowSshCidr is set to your IP/32)
+    Description: SSH command (works only if you enabled SSH by setting AllowSshCidr to your IP/32)
     Value: !Sub "ssh -i /path/to/${KeyName}.pem ec2-user@${NotebookInstance.PublicIp}"
 
-  # Once SSM works, you can use this instead of SSH tunneling
   SsmPortForwardCommand:
-    Description: Port-forward Jupyter to localhost:8888 (requires SSM working)
+    Description: Port-forward Jupyter to localhost:8888
     Value: !Sub >
-      aws ssm start-session --region ${AwsRegion} --target ${NotebookInstance}
+      aws ssm start-session --target ${NotebookInstance}
       --document-name AWS-StartPortForwardingSession
       --parameters '{"portNumber":["8888"],"localPortNumber":["8888"]}'
 
   JupyterLogsCommand:
-    Description: Get token URL from container logs (run on instance)
+    Description: Get Jupyter token URL from container logs (run on instance)
     Value: "sudo docker logs rl-notebook --tail 120"
 
   SshTunnelCommand:
-    Description: SSH tunnel Jupyter to your laptop localhost:8888 (requires SSH working)
+    Description: SSH tunnel Jupyter to your laptop localhost:8888 (requires SSH enabled)
     Value: !Sub "ssh -i /path/to/${KeyName}.pem -L 8888:127.0.0.1:8888 ec2-user@${NotebookInstance.PublicIp}"
 
 
