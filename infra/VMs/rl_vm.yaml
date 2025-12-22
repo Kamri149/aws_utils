@@ -38,11 +38,11 @@ Parameters:
 
   VolumeSizeGiB:
     Type: Number
-    Default: 200
+    Default: 30
 
   VolumeIops:
     Type: Number
-    Default: 6000
+    Default: 3000
     Description: gp3 IOPS (remove from template too if validation complains)
 
   AllowSshCidr:
