@@ -94,9 +94,7 @@ Resources:
       ImageId: !Ref NotebookAmiId
       InstanceType: !Ref InstanceType
 
-      # Only set KeyName when SSH is enabled (prevents accidental “I thought SSH was on” confusion)
       KeyName: !If [EnableSSH, !Ref KeyName, !Ref "AWS::NoValue"]
-
       IamInstanceProfile: !Ref EMREC2InstanceProfileName
 
       NetworkInterfaces:
@@ -136,10 +134,7 @@ Resources:
           REGION='${AwsRegion}'
           REPO_NAME='${EcrRepoName}'
 
-          # Host path (VM)
           NOTEBOOK_DIR="/home/ec2-user/notebooks"
-
-          # Container paths
           CONTAINER_NOTEBOOK_DIR="/workspace"
 
           CONTAINER_NAME="rl-notebook"
@@ -179,7 +174,8 @@ Resources:
             -v $NOTEBOOK_DIR:$CONTAINER_NOTEBOOK_DIR \
             -e AWS_REGION=$REGION \
             $ECR_URI:latest \
-            jupyter lab --no-browser --ip 0.0.0.0 --port $PORT --allow-root --notebook-dir=$CONTAINER_NOTEBOOK_DIR
+            jupyter lab --no-browser --ip 0.0.0.0 --port $PORT --allow-root --notebook-dir=$CONTAINER_NOTEBOOK_DIR \
+              --IdentityProvider.token='' --ServerApp.password=''
 
           ExecStop=/usr/bin/docker stop $CONTAINER_NAME
 
@@ -222,6 +218,233 @@ Outputs:
   SshTunnelCommand:
     Description: SSH tunnel Jupyter to your laptop localhost:8888 (requires SSH enabled)
     Value: !Sub "ssh -i /path/to/${KeyName}.pem -L 8888:127.0.0.1:8888 ec2-user@${NotebookInstance.PublicIp}"
+
+
+
+# AWSTemplateFormatVersion: "2010-09-09"
+# Description: TradingBot Single VM (EC2) - Docker+ECR+systemd, hardened; PUBLIC IP; encrypted EBS; IMDSv2; SSH optional
+
+# Parameters:
+#   VpcId:
+#     Type: AWS::EC2::VPC::Id
+#     Description: Existing VPC ID
+
+#   SubnetId:
+#     Type: AWS::EC2::Subnet::Id
+#     Description: Subnet for the instance
+#     Default: subnet-0a568c53670a616fc
+
+#   KeyName:
+#     Type: AWS::EC2::KeyPair::KeyName
+#     Description: Key pair for SSH access (only applied if AllowSshCidr != 0.0.0.0/32)
+#     Default: tradingbot-notebook
+
+#   EMREC2InstanceProfileName:
+#     Type: String
+#     Default: EMR_EC2_DefaultRole
+#     Description: Instance profile NAME (same as EMR master node)
+
+#   InstanceType:
+#     Type: String
+#     Default: t3.small
+#     AllowedValues:
+#       - t3.micro
+#       - t3.small
+#       - t3.medium
+#       - t3.large
+#       - m6i.large
+#       - m6i.xlarge
+#       - r6i.large
+#       - r6i.xlarge
+#       - r6i.2xlarge
+#       - m5.2xlarge
+
+#   VolumeSizeGiB:
+#     Type: Number
+#     Default: 30
+
+#   VolumeIops:
+#     Type: Number
+#     Default: 3000
+#     Description: gp3 IOPS (remove from template too if validation complains)
+
+#   AllowSshCidr:
+#     Type: String
+#     Default: "0.0.0.0/32"
+#     Description: Set to your public IP/32 to enable SSH. Leave default to create NO inbound rules.
+
+#   AwsRegion:
+#     Type: String
+#     Default: eu-west-2
+
+#   EcrRepoName:
+#     Type: String
+#     Default: trading-platform-rl
+
+#   NotebookAmiId:
+#     Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+#     Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-6.1-x86_64
+
+# Conditions:
+#   EnableSSH: !Not [!Equals [!Ref AllowSshCidr, "0.0.0.0/32"]]
+
+# Resources:
+#   NotebookInstanceSG:
+#     Type: AWS::EC2::SecurityGroup
+#     Properties:
+#       GroupDescription: Single VM SG (no inbound by default; SSH optional; Jupyter via localhost tunnel)
+#       VpcId: !Ref VpcId
+
+#       SecurityGroupIngress: !If
+#         - EnableSSH
+#         - - IpProtocol: tcp
+#             FromPort: 22
+#             ToPort: 22
+#             CidrIp: !Ref AllowSshCidr
+#         - !Ref "AWS::NoValue"
+
+#       SecurityGroupEgress:
+#         - IpProtocol: -1
+#           CidrIp: 0.0.0.0/0
+
+#       Tags:
+#         - Key: Project
+#           Value: TradingBot
+
+#   NotebookInstance:
+#     Type: AWS::EC2::Instance
+#     Properties:
+#       ImageId: !Ref NotebookAmiId
+#       InstanceType: !Ref InstanceType
+
+#       # Only set KeyName when SSH is enabled (prevents accidental “I thought SSH was on” confusion)
+#       KeyName: !If [EnableSSH, !Ref KeyName, !Ref "AWS::NoValue"]
+
+#       IamInstanceProfile: !Ref EMREC2InstanceProfileName
+
+#       NetworkInterfaces:
+#         - DeviceIndex: 0
+#           SubnetId: !Ref SubnetId
+#           GroupSet:
+#             - !Ref NotebookInstanceSG
+#           AssociatePublicIpAddress: true
+#           DeleteOnTermination: true
+
+#       BlockDeviceMappings:
+#         - DeviceName: /dev/xvda
+#           Ebs:
+#             VolumeType: gp3
+#             VolumeSize: !Ref VolumeSizeGiB
+#             Iops: !Ref VolumeIops
+#             Encrypted: true
+#             DeleteOnTermination: true
+
+#       MetadataOptions:
+#         HttpEndpoint: enabled
+#         HttpTokens: required
+#         HttpPutResponseHopLimit: 2
+#         InstanceMetadataTags: enabled
+
+#       Tags:
+#         - Key: Name
+#           Value: !Sub "tradingbot-single-vm-${AWS::StackName}"
+#         - Key: Project
+#           Value: TradingBot
+
+#       UserData:
+#         Fn::Base64: !Sub |
+#           #!/bin/bash
+#           set -euo pipefail
+
+#           REGION='${AwsRegion}'
+#           REPO_NAME='${EcrRepoName}'
+
+#           # Host path (VM)
+#           NOTEBOOK_DIR="/home/ec2-user/notebooks"
+
+#           # Container paths
+#           CONTAINER_NOTEBOOK_DIR="/workspace"
+
+#           CONTAINER_NAME="rl-notebook"
+#           PORT="8888"
+
+#           dnf update -y
+#           dnf install -y docker
+#           systemctl enable docker
+#           systemctl start docker
+#           usermod -aG docker ec2-user
+
+#           mkdir -p "$NOTEBOOK_DIR"
+#           chown -R ec2-user:ec2-user "$NOTEBOOK_DIR"
+
+#           ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
+#           ECR_URI="$ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com/$REPO_NAME"
+
+#           aws ecr get-login-password --region "$REGION" \
+#             | docker login --username AWS --password-stdin "$ECR_URI"
+
+#           docker pull "$ECR_URI:latest"
+
+#           cat >/etc/systemd/system/rl-notebook.service <<EOF
+#           [Unit]
+#           Description=RL Jupyter Notebook Container
+#           After=network-online.target docker.service
+#           Wants=network-online.target docker.service
+
+#           [Service]
+#           Restart=always
+#           RestartSec=5
+#           ExecStartPre=-/usr/bin/docker rm -f $CONTAINER_NAME
+#           ExecStartPre=/usr/bin/docker pull $ECR_URI:latest
+
+#           ExecStart=/usr/bin/docker run --name $CONTAINER_NAME \
+#             -p 127.0.0.1:$PORT:$PORT \
+#             -v $NOTEBOOK_DIR:$CONTAINER_NOTEBOOK_DIR \
+#             -e AWS_REGION=$REGION \
+#             $ECR_URI:latest \
+#             jupyter lab --no-browser --ip 0.0.0.0 --port $PORT --allow-root --notebook-dir=$CONTAINER_NOTEBOOK_DIR
+
+#           ExecStop=/usr/bin/docker stop $CONTAINER_NAME
+
+#           [Install]
+#           WantedBy=multi-user.target
+#           EOF
+
+#           systemctl daemon-reload
+#           systemctl enable rl-notebook.service
+#           systemctl start rl-notebook.service
+
+# Outputs:
+#   InstanceId:
+#     Description: EC2 Instance ID
+#     Value: !Ref NotebookInstance
+
+#   PrivateIp:
+#     Description: Private IP address
+#     Value: !GetAtt NotebookInstance.PrivateIp
+
+#   PublicIp:
+#     Description: Public IPv4 address (this is the “public address” you SSH to)
+#     Value: !GetAtt NotebookInstance.PublicIp
+
+#   SshCommand:
+#     Description: SSH command (works only if you enabled SSH by setting AllowSshCidr to your IP/32)
+#     Value: !Sub "ssh -i /path/to/${KeyName}.pem ec2-user@${NotebookInstance.PublicIp}"
+
+#   SsmPortForwardCommand:
+#     Description: Port-forward Jupyter to localhost:8888
+#     Value: !Sub >
+#       aws ssm start-session --target ${NotebookInstance}
+#       --document-name AWS-StartPortForwardingSession
+#       --parameters '{"portNumber":["8888"],"localPortNumber":["8888"]}'
+
+#   JupyterLogsCommand:
+#     Description: Get Jupyter token URL from container logs (run on instance)
+#     Value: "sudo docker logs rl-notebook --tail 120"
+
+#   SshTunnelCommand:
+#     Description: SSH tunnel Jupyter to your laptop localhost:8888 (requires SSH enabled)
+#     Value: !Sub "ssh -i /path/to/${KeyName}.pem -L 8888:127.0.0.1:8888 ec2-user@${NotebookInstance.PublicIp}"
 
 
 # AWSTemplateFormatVersion: "2010-09-09"
