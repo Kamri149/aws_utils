@@ -220,7 +220,6 @@ Outputs:
     Value: !Sub "ssh -i /path/to/${KeyName}.pem -L 8888:127.0.0.1:8888 ec2-user@${NotebookInstance.PublicIp}"
 
 
-
 # AWSTemplateFormatVersion: "2010-09-09"
 # Description: TradingBot Single VM (EC2) - Docker+ECR+systemd, hardened; PUBLIC IP; encrypted EBS; IMDSv2; SSH optional
 
