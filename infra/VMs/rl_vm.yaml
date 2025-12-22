@@ -140,7 +140,7 @@ Resources:
           NOTEBOOK_DIR="/home/ec2-user/notebooks"
 
           # Container paths
-          CONTAINER_NOTEBOOK_DIR="/workspace/notebooks"
+          CONTAINER_NOTEBOOK_DIR="/workspace"
 
           CONTAINER_NAME="rl-notebook"
           PORT="8888"
