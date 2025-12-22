@@ -21,20 +21,20 @@ Parameters:
     Default: EMR_EC2_DefaultRole
     Description: Instance profile NAME (same as EMR master node)
 
-InstanceType:
-  Type: String
-  Default: t3.small
-  AllowedValues:
-    - t3.micro
-    - t3.small
-    - t3.medium
-    - t3.large
-    - m6i.large
-    - m6i.xlarge
-    - r6i.large
-    - r6i.xlarge
-    - r6i.2xlarge
-    - m5.2xlarge
+  InstanceType:
+    Type: String
+    Default: t3.small
+    AllowedValues:
+      - t3.micro
+      - t3.small
+      - t3.medium
+      - t3.large
+      - m6i.large
+      - m6i.xlarge
+      - r6i.large
+      - r6i.xlarge
+      - r6i.2xlarge
+      - m5.2xlarge
 
   VolumeSizeGiB:
     Type: Number
