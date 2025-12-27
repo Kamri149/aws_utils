@@ -1,20 +1,20 @@
+--extra-index-url https://download.pytorch.org/whl/cpu
+
+# Core DS
 numpy==1.26.4
 pandas==2.1.4
-scipy==1.11.4
-
 pyarrow==14.0.2
-awswrangler==3.7.3
+scipy==1.11.4
 boto3==1.34.34
 s3fs==2024.3.1
+awswrangler==3.7.3
 
-# RLlib 2.9.3 requires gymnasium==0.28.1
+# RL / ML
 gymnasium==0.28.1
 ray[rllib]==2.9.3
-
-# CPU-only torch (prevents pulling nvidia-* wheels)
---index-url https://download.pytorch.org/whl/cpu
 torch==2.1.2
 
+# Notebook
 jupyterlab==4.0.9
 ipykernel==6.29.0
 matplotlib==3.8.2
