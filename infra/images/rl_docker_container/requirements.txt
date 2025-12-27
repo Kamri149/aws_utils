@@ -1,17 +1,28 @@
-# Core DS
-numpy
-pandas
-pyarrow
-scipy
-boto3
-s3fs
+# ----------------------------
+# Core numerical / data stack
+# ----------------------------
+numpy==1.26.4
+pandas==2.1.4
+scipy==1.11.4
 
-# RL / ML
-gymnasium
-ray[rllib]
-torch
+# ----------------------------
+# Arrow + AWS data access
+# ----------------------------
+pyarrow==14.0.2
+awswrangler==3.7.3
+boto3==1.34.34
+s3fs==2024.3.1
 
-# Notebook
-jupyterlab
-ipykernel
-matplotlib
+# ----------------------------
+# Reinforcement Learning / ML
+# ----------------------------
+gymnasium==0.29.1
+ray[rllib]==2.9.3
+torch==2.1.2
+
+# ----------------------------
+# Notebook / dev tooling
+# ----------------------------
+jupyterlab==4.0.9
+ipykernel==6.29.0
+matplotlib==3.8.2
