@@ -9,4 +9,4 @@ requires = ["setuptools"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
-packages = ["trading"]
+packages = ["trading", "binance"]
