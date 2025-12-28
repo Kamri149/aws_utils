@@ -97,6 +97,9 @@ def add_v1_kline_features_1s_calendar(df: pd.DataFrame) -> pd.DataFrame:
     out["range_zscore_60s"] = (out["micro_range"] - range_mean_60) / (range_std_60 + eps)
     out["range_ratio_5s_60s"] = out["micro_range"].rolling(5).mean() / (range_mean_60 + eps)
 
+    out["roll_vol_3600s"] = out["micro_return"].rolling(3600).std()
+    out["vol_regime_60_3600"] = out["roll_vol_60s"] / (out["roll_vol_3600s"] + eps)
+
     # compression percentile over 300s
     def _pct_rank_last(x: np.ndarray) -> float:
         last = x[-1]
