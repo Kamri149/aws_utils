@@ -1,5 +1,10 @@
 --extra-index-url https://download.pytorch.org/whl/cpu
 
+# Build/runtime tooling (Ray expects pkg_resources layout)
+setuptools==69.5.1
+packaging==24.2
+wheel==0.42.0
+
 # Core DS
 numpy==1.26.4
 pandas==2.1.4
