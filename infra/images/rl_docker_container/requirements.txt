@@ -1,9 +1,9 @@
 --index-url https://pypi.org/simple
 --extra-index-url https://download.pytorch.org/whl/cpu
 
-# Tooling (keep <81 to avoid future pkg_resources removal edge)
+# Tooling (keep <81 to avoid pkg_resources removal edge)
 setuptools==80.9.0
-packaging==24.2
+packaging==23.2
 wheel==0.45.1
 
 # Core DS
@@ -15,9 +15,9 @@ boto3==1.34.34
 s3fs==2024.3.1
 awswrangler==3.7.3
 
-# RL / ML (match what is working in your environment)
-gymnasium~=1.1.1
-ray[rllib]~=2.53.0
+# RL / ML
+gymnasium==1.1.1
+ray[rllib]==2.53.0
 torch==2.1.2+cpu
 
 # Experiment tracking
