@@ -22,7 +22,7 @@ phases:
       # IMPORTANT: context is repo root (.)
       # - docker build -f infra/images/sklearn_docker_container/Dockerfile -t "${ECR_URI}:${IMAGE_TAG}" .
       # - docker tag "${ECR_URI}:${IMAGE_TAG}" "${ECR_URI}:latest"
-      - docker build -f infra/images/sklearn/Dockerfile -t "${ECR_URI}:sklearn-${IMAGE_TAG}" .
+      - docker build -f infra/images/sklearn_docker_container/Dockerfile -t "${ECR_URI}:sklearn-${IMAGE_TAG}" .
       - docker tag "${ECR_URI}:sklearn-${IMAGE_TAG}" "${ECR_URI}:sklearn-latest"
 
   post_build:
