@@ -1,33 +1,36 @@
 --index-url https://pypi.org/simple
 --extra-index-url https://download.pytorch.org/whl/cpu
 
+# Tooling
+setuptools==80.9.0
+wheel==0.45.1
+packaging==24.2
+
 # Core DS
 numpy==1.26.4
-pandas==2.2.3
-pyarrow==17.0.0
-scipy==1.13.1
-
-# AWS
+pandas==2.1.4
+pyarrow==14.0.2
+scipy==1.11.4
 boto3==1.34.34
-s3fs==2024.10.0
-awswrangler==3.12.0
+s3fs==2024.3.1
+awswrangler==3.7.3
+
+# ML
+scikit-learn==1.5.2
 
 # RL / ML
 gymnasium==1.1.1
 ray[rllib]==2.53.0
 torch==2.1.2+cpu
 
-# Experiment tracking (use MLflow 3.x to avoid packaging<24)
-mlflow==3.8.1
-
-# Machine learning
-scikit-learn==1.5.2
+# Experiment tracking
+mlflow==2.20.0
 
 # Notebook
-jupyterlab==4.3.3
-ipykernel==6.29.5
-matplotlib==3.9.2
+jupyterlab==4.0.9
+ipykernel==6.29.0
+matplotlib==3.8.2
 
-# Utilities
+# Utilities (optional)
 tqdm==4.67.1
 python-dateutil==2.9.0.post0
