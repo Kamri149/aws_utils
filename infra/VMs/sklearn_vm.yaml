@@ -137,7 +137,7 @@ Resources:
           NOTEBOOK_DIR="/home/ec2-user/notebooks"
           CONTAINER_NOTEBOOK_DIR="/workspace"
 
-          CONTAINER_NAME="rl-notebook"
+          CONTAINER_NAME="container"
           PORT="8888"
 
           dnf update -y
@@ -210,7 +210,7 @@ Outputs:
     Value: !Sub >
       aws ssm start-session --target ${NotebookInstance}
       --document-name AWS-StartPortForwardingSession
-      --parameters '{"portNumber":["8888"],"localPortNumber":["8888"]}'
+      --parameters '{"portNumber":["8888"],"localPortNumber":["8888"]}'f
 
   JupyterLogsCommand:
     Description: Get Jupyter token URL from container logs (run on instance)
@@ -222,4 +222,4 @@ Outputs:
 
 #   JupyterLogsCommand:
 #     Description: Get Jupyter token URL from container logs (run on instance)
-#     Value: "sudo docker logs jupyter-notebook --tail 120"
+#     Value: "sudo docker logs container --tail 120"
