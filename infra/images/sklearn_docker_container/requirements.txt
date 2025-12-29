@@ -1,19 +1,33 @@
-# Core numerics
-numpy>=1.24,<2.0
-pandas>=2.0,<3.0
+--index-url https://pypi.org/simple
+--extra-index-url https://download.pytorch.org/whl/cpu
 
-# Storage / IO
-pyarrow>=14.0,<16.0
+# Core DS
+numpy==1.26.4
+pandas==2.2.3
+pyarrow==17.0.0
+scipy==1.13.1
 
-# Distributed compute
-ray[default]>=2.9,<3.0
+# AWS
+boto3==1.34.34
+s3fs==2024.10.0
+awswrangler==3.12.0
+
+# RL / ML
+gymnasium==1.1.1
+ray[rllib]==2.53.0
+torch==2.1.2+cpu
+
+# Experiment tracking (use MLflow 3.x to avoid packaging<24)
+mlflow==3.8.1
 
 # Machine learning
-scikit-learn>=1.3,<1.6
+scikit-learn==1.5.2
 
-# Experiment tracking
-mlflow>=2.9,<3.0
+# Notebook
+jupyterlab==4.3.3
+ipykernel==6.29.5
+matplotlib==3.9.2
 
 # Utilities
-tqdm>=4.66,<5.0
-python-dateutil>=2.8,<3.0
+tqdm==4.67.1
+python-dateutil==2.9.0.post0
