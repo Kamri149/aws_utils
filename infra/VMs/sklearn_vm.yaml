@@ -210,16 +210,12 @@ Outputs:
     Value: !Sub >
       aws ssm start-session --target ${NotebookInstance}
       --document-name AWS-StartPortForwardingSession
-      --parameters '{"portNumber":["8888"],"localPortNumber":["8888"]}'f
+      --parameters '{"portNumber":["8888"],"localPortNumber":["8888"]}'
 
   JupyterLogsCommand:
     Description: Get Jupyter token URL from container logs (run on instance)
-    Value: "sudo docker logs jupyter-notebook --tail 120"
+    Value: "sudo docker logs container --tail 120 -f"
 
   SshTunnelCommand:
     Description: SSH tunnel Jupyter to your laptop localhost:8888 (requires SSH enabled)
     Value: !Sub "ssh -i /path/to/${KeyName}.pem -L 8888:127.0.0.1:8888 ec2-user@${NotebookInstance.PublicIp}"
-
-#   JupyterLogsCommand:
-#     Description: Get Jupyter token URL from container logs (run on instance)
-#     Value: "sudo docker logs container --tail 120"
