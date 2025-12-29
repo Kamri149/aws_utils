@@ -214,7 +214,7 @@ Outputs:
 
   JupyterLogsCommand:
     Description: Get Jupyter token URL from container logs (run on instance)
-    Value: "sudo docker logs container --tail 120 -f"
+    Value: "sudo docker logs container --tail 120"
 
   SshTunnelCommand:
     Description: SSH tunnel Jupyter to your laptop localhost:8888 (requires SSH enabled)
