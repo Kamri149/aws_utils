@@ -22,16 +22,16 @@ phases:
       # IMPORTANT: context is repo root (.)
       # - docker build -f infra/images/rl_docker_container/Dockerfile -t "${ECR_URI}:${IMAGE_TAG}" .
       # - docker tag "${ECR_URI}:${IMAGE_TAG}" "${ECR_URI}:latest"
-      - docker build -f infra/images/app/Dockerfile -t "${ECR_URI}:app-${IMAGE_TAG}" .
-      - docker tag "${ECR_URI}:app-${IMAGE_TAG}" "${ECR_URI}:app-latest"
+      - docker build -f infra/images/app/Dockerfile -t "${ECR_URI}:rl-${IMAGE_TAG}" .
+      - docker tag "${ECR_URI}:rl-${IMAGE_TAG}" "${ECR_URI}:rl-latest"
 
   post_build:
     commands:
       - echo "Pushing Docker image..."
       # - docker push "${ECR_URI}:${IMAGE_TAG}"
       # - docker push "${ECR_URI}:latest"
-      - docker push "${ECR_URI}:app-${IMAGE_TAG}"
-      - docker push "${ECR_URI}:app-latest"
+      - docker push "${ECR_URI}:rl-${IMAGE_TAG}"
+      - docker push "${ECR_URI}:rl-latest"
       - printf '{"imageUri":"%s"}' "${ECR_URI}:${IMAGE_TAG}" > imageDetail.json
 
 artifacts:
