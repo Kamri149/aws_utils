@@ -1,0 +1,17 @@
+.git
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+**/*.pyd
+**/.pytest_cache/
+**/.mypy_cache/
+**/.ruff_cache/
+dist/
+build/
+.eggs/
+*.egg-info/
+.env
+.venv
+.ipynb_checkpoints
+data/
+logs/
