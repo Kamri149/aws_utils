@@ -222,4 +222,4 @@ Outputs:
 
 #   JupyterLogsCommand:
 #     Description: Get Jupyter token URL from container logs (run on instance)
-#     Value: "sudo docker logs rl-notebook --tail 120"
+#     Value: "sudo docker logs jupyter-notebook --tail 120"
