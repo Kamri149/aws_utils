@@ -56,7 +56,7 @@ Parameters:
 
   EcrRepoName:
     Type: String
-    Default: trading-platform-rl
+    Default: trading-platform
 
   NotebookAmiId:
     Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
@@ -155,11 +155,12 @@ Resources:
           aws ecr get-login-password --region "$REGION" \
             | docker login --username AWS --password-stdin "$ECR_URI"
 
-          docker pull "$ECR_URI:latest"
+          # docker pull "$ECR_URI:latest"
+          docker pull "$ECR_URI:sklearn-latest"
 
-          cat >/etc/systemd/system/rl-notebook.service <<EOF
+          cat >/etc/systemd/system/jupyter-notebook.service <<EOF
           [Unit]
-          Description=RL Jupyter Notebook Container
+          Description=Sklearn Jupyter Notebook Container
           After=network-online.target docker.service
           Wants=network-online.target docker.service
 
@@ -167,13 +168,13 @@ Resources:
           Restart=always
           RestartSec=5
           ExecStartPre=-/usr/bin/docker rm -f $CONTAINER_NAME
-          ExecStartPre=/usr/bin/docker pull $ECR_URI:latest
+          ExecStartPre=/usr/bin/docker pull $ECR_URI:sklearn-latest
 
           ExecStart=/usr/bin/docker run --name $CONTAINER_NAME \
             -p 127.0.0.1:$PORT:$PORT \
             -v $NOTEBOOK_DIR:$CONTAINER_NOTEBOOK_DIR \
             -e AWS_REGION=$REGION \
-            $ECR_URI:latest \
+            $ECR_URI:sklearn-latest \
             jupyter lab --no-browser --ip 0.0.0.0 --port $PORT --allow-root --notebook-dir=$CONTAINER_NOTEBOOK_DIR \
               --IdentityProvider.token='' --ServerApp.password=''
 
@@ -184,8 +185,8 @@ Resources:
           EOF
 
           systemctl daemon-reload
-          systemctl enable rl-notebook.service
-          systemctl start rl-notebook.service
+          systemctl enable jupyter-notebook.service
+          systemctl start jupyter-notebook.service
 
 Outputs:
   InstanceId:
@@ -213,7 +214,7 @@ Outputs:
 
   JupyterLogsCommand:
     Description: Get Jupyter token URL from container logs (run on instance)
-    Value: "sudo docker logs rl-notebook --tail 120"
+    Value: "sudo docker logs jupyter-notebook --tail 120"
 
   SshTunnelCommand:
     Description: SSH tunnel Jupyter to your laptop localhost:8888 (requires SSH enabled)
