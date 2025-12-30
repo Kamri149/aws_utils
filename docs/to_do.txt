@@ -1,6 +1,4 @@
-obtain trading histories of successful trades and use those to improve / initialize your trading bots. 
-
-[1] You can see every trade of profitable Ethereum wallets directly on-chain.
+[1] Obtain trading histories of successful trades and use those to improve / initialize your trading bots. 
 
 There is no public dataset that provides full private trading histories of discretionary Ethereum traders. Centralised exchanges do not expose individual user trade logs, and anyone claiming to sell complete “top trader” datasets is fabricating or heavily cherry-picking data. However, there are legitimate and widely used alternatives that allow you to study real, successful Ethereum trading behaviour.
 The most reliable source of real trading behaviour is on-chain wallet data. Because Ethereum is fully transparent, it is possible to reconstruct complete trading histories for profitable wallets directly from the blockchain. Tools such as Etherscan provide raw transaction logs, while platforms like DeBank summarise DeFi positions and historical activity. Advanced analytics platforms such as Nansen label wallets associated with consistently profitable or “smart money” behaviour, and Dune allows you to query Ethereum data directly using SQL. From these sources, you can reconstruct timestamps, entry and exit prices for decentralised exchange trades, position sizes, and behavioural characteristics such as holding periods and timing patterns, though this requires non-trivial reconstruction work.
