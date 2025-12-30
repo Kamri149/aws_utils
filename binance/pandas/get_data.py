@@ -1,10 +1,11 @@
+from __future__ import annotations
 import io
 import os
 import zipfile
 import requests
 import pandas as pd
 from datetime import datetime, timedelta
-from typing import Optional, Sequence
+from typing import Optional, Sequence, Iterable
 
 
 def fetch_binance_vision_klines(
@@ -204,3 +205,131 @@ def load_binance_vision_klines_local(
 
     print(f"✅ Loaded {len(df_all)} rows from local ZIPs: {start_date} → {end_date}")
     return df_all
+
+
+def load_any_datafile_local(
+    path: str,
+    *,
+    filetype: Optional[str] = None,
+    compression: Optional[str] = None,
+    csv_kwargs: Optional[dict] = None,
+    columns: Optional[Sequence[str]] = None,
+    require_exact_columns: bool = True,
+    start_ts: Optional[str] = None,
+    end_ts: Optional[str] = None,
+    ts_col: Optional[str] = None,
+    ts_unit: Optional[str] = None,
+    tz_utc: bool = True,
+) -> pd.DataFrame:
+    """
+    Generic local data loader with ZIP support and optional column naming.
+
+    New:
+      - `columns`: explicitly set column names after load
+      - `require_exact_columns`: enforce strict column count matching
+
+    The rest of the behaviour mirrors your Binance local loader:
+      - path-based format detection
+      - ZIP container handling
+      - optional timestamp filtering
+    """
+
+    if not os.path.exists(path):
+        raise FileNotFoundError(f"File not found: {path}")
+
+    csv_kwargs = csv_kwargs or {}
+
+    def infer_type(p: str) -> str:
+        ext = os.path.splitext(p)[1].lower().lstrip(".")
+        mapping = {
+            "csv": "csv",
+            "tsv": "tsv",
+            "parquet": "parquet",
+            "pq": "parquet",
+            "json": "json",
+            "jsonl": "jsonl",
+            "ndjson": "jsonl",
+            "feather": "feather",
+            "pkl": "pickle",
+            "pickle": "pickle",
+        }
+        if ext not in mapping:
+            raise ValueError(f"Unsupported file extension: .{ext}")
+        return mapping[ext]
+
+    def read_by_type(ft: str, p: str, data: Optional[bytes] = None) -> pd.DataFrame:
+        if ft in {"csv", "tsv"}:
+            sep = "\t" if ft == "tsv" else ","
+            if data is None:
+                return pd.read_csv(p, sep=sep, compression=compression, **csv_kwargs)
+            return pd.read_csv(io.BytesIO(data), sep=sep, **csv_kwargs)
+
+        if ft == "parquet":
+            return pd.read_parquet(io.BytesIO(data)) if data else pd.read_parquet(p)
+
+        if ft in {"json", "jsonl"}:
+            lines = ft == "jsonl"
+            return (
+                pd.read_json(io.BytesIO(data), lines=lines)
+                if data
+                else pd.read_json(p, lines=lines)
+            )
+
+        if ft == "feather":
+            return pd.read_feather(io.BytesIO(data)) if data else pd.read_feather(p)
+
+        if ft == "pickle":
+            return pd.read_pickle(io.BytesIO(data)) if data else pd.read_pickle(p)
+
+        raise ValueError(f"Unsupported filetype: {ft}")
+
+    # ---------- load ----------
+    if path.lower().endswith(".zip"):
+        with zipfile.ZipFile(path) as zf:
+            inner = [
+                n for n in zf.namelist()
+                if os.path.splitext(n)[1].lower() in {
+                    ".csv", ".tsv", ".parquet", ".pq",
+                    ".json", ".jsonl", ".ndjson",
+                    ".feather", ".pkl", ".pickle"
+                }
+            ]
+            if not inner:
+                raise ValueError(f"No supported data files found in ZIP: {path}")
+
+            inner_name = inner[0]
+            ft = filetype or infer_type(inner_name)
+
+            with zf.open(inner_name) as f:
+                df = read_by_type(ft, inner_name, data=f.read())
+    else:
+        ft = filetype or infer_type(path)
+        df = read_by_type(ft, path)
+
+    # ---------- column handling (NEW) ----------
+    if columns is not None:
+        if require_exact_columns and len(columns) != df.shape[1]:
+            raise ValueError(
+                f"Column count mismatch: "
+                f"{len(columns)} names provided, but file has {df.shape[1]} columns"
+            )
+        df.columns = list(columns)
+
+    # ---------- optional timestamp filtering ----------
+    if ts_col is not None and (start_ts or end_ts):
+        if ts_col not in df.columns:
+            raise ValueError(f"ts_col '{ts_col}' not found in DataFrame")
+
+        if ts_unit is not None:
+            df[ts_col] = pd.to_datetime(df[ts_col], unit=ts_unit, utc=True)
+        else:
+            df[ts_col] = pd.to_datetime(df[ts_col], utc=tz_utc, errors="coerce")
+
+        if start_ts:
+            df = df[df[ts_col] >= pd.to_datetime(start_ts, utc=True)]
+        if end_ts:
+            df = df[df[ts_col] <= pd.to_datetime(end_ts, utc=True)]
+
+        df = df.reset_index(drop=True)
+
+    return df
