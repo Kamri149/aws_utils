@@ -47,17 +47,15 @@ Parameters:
     Type: String
     Default: trading-platform
 
-  # Default runtime tag (keep as-is)
   ImageTag:
     Type: String
     Default: sklearn-latest
-    Description: ECR image tag to run (default: sklearn-latest)
+    Description: "ECR image tag to run (default: sklearn-latest)"
 
-  # Pulled (cached) by default for quick rollback (your requested fixed tag)
   ExtraImageTag:
     Type: String
     Default: sklearn-5ef3d8e77fc9
-    Description: Extra ECR image tag to pre-pull (not run unless ImageTag is changed)
+    Description: "Extra ECR image tag to pre-pull (not run unless ImageTag is changed)"
 
   NotebookAmiId:
     Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
@@ -66,27 +64,27 @@ Parameters:
   JupyterPort:
     Type: Number
     Default: 8888
-    Description: Host+container port for Jupyter (bound to 127.0.0.1 on the instance)
+    Description: "Host+container port for Jupyter (bound to 127.0.0.1 on the instance)"
 
   RayDashboardPort:
     Type: Number
     Default: 8265
-    Description: Host+container port for Ray dashboard (bound to 127.0.0.1 on the instance)
+    Description: "Host+container port for Ray dashboard (bound to 127.0.0.1 on the instance)"
 
   ShmSize:
     Type: String
     Default: "6g"
-    Description: Docker /dev/shm size for Ray object store (e.g. "2g", "6g", "12g")
+    Description: "Docker /dev/shm size for Ray object store (e.g. 2g, 6g, 12g)"
 
   DockerCpuLimit:
     Type: String
     Default: "4.0"
-    Description: Docker CPU limit passed to --cpus (set to match your instance vCPU)
+    Description: "Docker CPU limit passed to --cpus (set to match your instance vCPU)"
 
   DockerMemoryLimit:
     Type: String
     Default: "16g"
-    Description: Docker memory limit passed to --memory (set to match your instance RAM)
+    Description: "Docker memory limit passed to --memory (set to match your instance RAM)"
 
 Conditions:
   EnableSSH: !Not [!Equals [!Ref AllowSshCidr, "0.0.0.0/32"]]
@@ -193,7 +191,7 @@ Resources:
           aws ecr get-login-password --region "$REGION" \
             | docker login --username AWS --password-stdin "$ECR_URI"
 
-          # Pull default + extra (your requested fixed tag) up-front
+          # Pull default + extra (cached for rollback)
           docker pull "$ECR_URI:$IMAGE_TAG"
           docker pull "$ECR_URI:$EXTRA_TAG" || true
 
@@ -207,7 +205,6 @@ Resources:
           Restart=always
           RestartSec=5
 
-          # Refresh ECR auth every start (tokens expire); do NOT rely on systemd \$VAR expansion for image name
           ExecStartPre=/bin/bash -lc 'aws ecr get-login-password --region "$REGION" | docker login --username AWS --password-stdin "$ECR_URI"'
           ExecStartPre=/bin/bash -lc 'docker pull "$ECR_URI:$IMAGE_TAG" || true'
 
@@ -250,7 +247,7 @@ Outputs:
     Value: !GetAtt NotebookInstance.PrivateIp
 
   PublicIp:
-    Description: Public IPv4 address (this is the “public address” you SSH to)
+    Description: Public IPv4 address (this is the "public address" you SSH to)
     Value: !GetAtt NotebookInstance.PublicIp
 
   SshCommand:
@@ -278,7 +275,6 @@ Outputs:
   SshTunnelCommand:
     Description: SSH tunnel Jupyter to your laptop localhost:${JupyterPort} (requires SSH enabled)
     Value: !Sub "ssh -i /path/to/${KeyName}.pem -L ${JupyterPort}:127.0.0.1:${JupyterPort} ec2-user@${NotebookInstance.PublicIp}"
-
 
 
 # AWSTemplateFormatVersion: "2010-09-09"
