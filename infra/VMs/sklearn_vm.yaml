@@ -222,7 +222,7 @@ Resources:
             -e AWS_REGION=$REGION \
             $ECR_URI:$IMAGE_TAG \
             bash -lc " \
-              python -m ray start --head --dashboard-host=0.0.0.0 --dashboard-port=$RAY_DASHBOARD_PORT --disable-usage-stats && \
+              ray start --head --dashboard-host=0.0.0.0 --dashboard-port=$RAY_DASHBOARD_PORT --disable-usage-stats && \
               exec jupyter lab --no-browser --ip 0.0.0.0 --port $PORT --allow-root --notebook-dir=$CONTAINER_NOTEBOOK_DIR \
                 --IdentityProvider.token='' --ServerApp.password='' \
             "
