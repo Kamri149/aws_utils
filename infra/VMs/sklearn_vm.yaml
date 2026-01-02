@@ -32,7 +32,7 @@ Parameters:
   VolumeIops:
     Type: Number
     Default: 3000
-    Description: gp3 IOPS
+    Description: gp3 IOPS (remove from template too if validation complains)
 
   AllowSshCidr:
     Type: String
@@ -47,17 +47,17 @@ Parameters:
     Type: String
     Default: trading-platform
 
-  # The tag the service RUNS by default
+  # Default runtime tag (keep as-is)
   ImageTag:
     Type: String
     Default: sklearn-latest
-    Description: ECR image tag to run (default)
+    Description: ECR image tag to run (default: sklearn-latest)
 
-  # An additional tag you want pulled onto the box by default (for quick rollback)
-  AdditionalImageTag:
+  # Pulled (cached) by default for quick rollback (your requested fixed tag)
+  ExtraImageTag:
     Type: String
     Default: sklearn-5ef3d8e77fc9
-    Description: Extra ECR image tag to pull (not run)
+    Description: Extra ECR image tag to pre-pull (not run unless ImageTag is changed)
 
   NotebookAmiId:
     Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
@@ -157,13 +157,10 @@ Resources:
           #!/bin/bash
           set -euo pipefail
 
-          # Log user-data clearly
-          exec > >(tee /var/log/user-data.log | logger -t user-data -s 2>/dev/console) 2>&1
-
           REGION='${AwsRegion}'
           REPO_NAME='${EcrRepoName}'
           IMAGE_TAG='${ImageTag}'
-          EXTRA_TAG='${AdditionalImageTag}'
+          EXTRA_TAG='${ExtraImageTag}'
 
           NOTEBOOK_DIR="/home/ec2-user/notebooks"
           CONTAINER_NOTEBOOK_DIR="/workspace"
@@ -171,15 +168,19 @@ Resources:
           CONTAINER_NAME="container"
           PORT='${JupyterPort}'
           RAY_DASHBOARD_PORT='${RayDashboardPort}'
+
+          # For Ray shared memory (tune if you change instance size)
           SHM_SIZE='${ShmSize}'
+
           CPU_LIMIT='${DockerCpuLimit}'
           MEM_LIMIT='${DockerMemoryLimit}'
 
           dnf update -y
-          dnf install -y docker amazon-ssm-agent awscli
-
-          systemctl enable --now docker
-          systemctl enable --now amazon-ssm-agent
+          dnf install -y docker amazon-ssm-agent
+          systemctl enable docker
+          systemctl start docker
+          systemctl enable amazon-ssm-agent
+          systemctl start amazon-ssm-agent
 
           usermod -aG docker ec2-user
 
@@ -189,43 +190,16 @@ Resources:
           ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
           ECR_URI="$ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com/$REPO_NAME"
 
-          PRIMARY_IMAGE="${ECR_URI}:${IMAGE_TAG}"
-          EXTRA_IMAGE="${ECR_URI}:${EXTRA_TAG}"
-
-          # Initial login + pull both tags (service runs PRIMARY_IMAGE)
           aws ecr get-login-password --region "$REGION" \
             | docker login --username AWS --password-stdin "$ECR_URI"
 
-          docker pull "$PRIMARY_IMAGE"
-          docker pull "$EXTRA_IMAGE" || true
-
-          # Write a helper so systemd doesn't need to handle quoting/expansion
-          cat >/usr/local/bin/start-trading-container.sh <<EOS
-          #!/bin/bash
-          set -euo pipefail
-
-          docker rm -f ${CONTAINER_NAME} >/dev/null 2>&1 || true
-
-          exec /usr/bin/docker run --name ${CONTAINER_NAME} \\
-            --cpus="${CPU_LIMIT}" \\
-            --memory="${MEM_LIMIT}" \\
-            --shm-size="${SHM_SIZE}" \\
-            --ulimit memlock=-1 \\
-            --ulimit nofile=1048576:1048576 \\
-            -p 127.0.0.1:${PORT}:${PORT} \\
-            -p 127.0.0.1:${RAY_DASHBOARD_PORT}:${RAY_DASHBOARD_PORT} \\
-            -v ${NOTEBOOK_DIR}:${CONTAINER_NOTEBOOK_DIR} \\
-            -e AWS_REGION=${REGION} \\
-            ${PRIMARY_IMAGE} \\
-            bash -lc "python -m ray start --head --dashboard-host=0.0.0.0 --dashboard-port=${RAY_DASHBOARD_PORT} --disable-usage-stats && \\
-                     exec jupyter lab --no-browser --ip 0.0.0.0 --port ${PORT} --allow-root --notebook-dir=${CONTAINER_NOTEBOOK_DIR} \\
-                       --IdentityProvider.token='' --ServerApp.password=''"
-          EOS
-          chmod +x /usr/local/bin/start-trading-container.sh
+          # Pull default + extra (your requested fixed tag) up-front
+          docker pull "$ECR_URI:$IMAGE_TAG"
+          docker pull "$ECR_URI:$EXTRA_TAG" || true
 
           cat >/etc/systemd/system/jupyter-notebook.service <<EOF
           [Unit]
-          Description=Trading Platform Container (Jupyter + Ray)
+          Description=Sklearn Jupyter + Ray Container
           After=network-online.target docker.service
           Wants=network-online.target docker.service
 
@@ -233,24 +207,38 @@ Resources:
           Restart=always
           RestartSec=5
 
-          # Refresh ECR auth at every start (tokens expire)
-          Environment=REGION=${REGION}
-          Environment=ECR_URI=${ECR_URI}
-          Environment=PRIMARY_IMAGE=${PRIMARY_IMAGE}
+          # Refresh ECR auth every start (tokens expire); do NOT rely on systemd \$VAR expansion for image name
+          ExecStartPre=/bin/bash -lc 'aws ecr get-login-password --region "$REGION" | docker login --username AWS --password-stdin "$ECR_URI"'
+          ExecStartPre=/bin/bash -lc 'docker pull "$ECR_URI:$IMAGE_TAG" || true'
 
-          ExecStartPre=/bin/bash -lc 'aws ecr get-login-password --region "${REGION}" | docker login --username AWS --password-stdin "${ECR_URI}"'
-          # Pull is non-fatal; if ECR hiccups but the image is cached, we still boot.
-          ExecStartPre=/bin/bash -lc 'docker pull "${PRIMARY_IMAGE}" || true'
+          ExecStartPre=-/usr/bin/docker rm -f $CONTAINER_NAME
 
-          ExecStart=/usr/local/bin/start-trading-container.sh
-          ExecStop=/usr/bin/docker stop ${CONTAINER_NAME}
+          ExecStart=/usr/bin/docker run --name $CONTAINER_NAME \
+            --cpus="$CPU_LIMIT" \
+            --memory="$MEM_LIMIT" \
+            --shm-size=$SHM_SIZE \
+            --ulimit memlock=-1 \
+            --ulimit nofile=1048576:1048576 \
+            -p 127.0.0.1:$PORT:$PORT \
+            -p 127.0.0.1:$RAY_DASHBOARD_PORT:$RAY_DASHBOARD_PORT \
+            -v $NOTEBOOK_DIR:$CONTAINER_NOTEBOOK_DIR \
+            -e AWS_REGION=$REGION \
+            $ECR_URI:$IMAGE_TAG \
+            bash -lc " \
+              python -m ray start --head --dashboard-host=0.0.0.0 --dashboard-port=$RAY_DASHBOARD_PORT --disable-usage-stats && \
+              exec jupyter lab --no-browser --ip 0.0.0.0 --port $PORT --allow-root --notebook-dir=$CONTAINER_NOTEBOOK_DIR \
+                --IdentityProvider.token='' --ServerApp.password='' \
+            "
+
+          ExecStop=/usr/bin/docker stop $CONTAINER_NAME
 
           [Install]
           WantedBy=multi-user.target
           EOF
 
           systemctl daemon-reload
-          systemctl enable --now jupyter-notebook.service
+          systemctl enable jupyter-notebook.service
+          systemctl start jupyter-notebook.service
 
 Outputs:
   InstanceId:
@@ -262,7 +250,7 @@ Outputs:
     Value: !GetAtt NotebookInstance.PrivateIp
 
   PublicIp:
-    Description: Public IPv4 address
+    Description: Public IPv4 address (this is the “public address” you SSH to)
     Value: !GetAtt NotebookInstance.PublicIp
 
   SshCommand:
@@ -290,6 +278,7 @@ Outputs:
   SshTunnelCommand:
     Description: SSH tunnel Jupyter to your laptop localhost:${JupyterPort} (requires SSH enabled)
     Value: !Sub "ssh -i /path/to/${KeyName}.pem -L ${JupyterPort}:127.0.0.1:${JupyterPort} ec2-user@${NotebookInstance.PublicIp}"
+
 
 
 # AWSTemplateFormatVersion: "2010-09-09"
