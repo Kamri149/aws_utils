@@ -231,7 +231,7 @@ Resources:
           docker pull "$ECR_URI:$IMAGE_TAG"
           docker pull "$ECR_URI:$EXTRA_TAG" || true
 
-          cat >/etc/systemd/system/jupyter-notebook.service <<EOF
+          cat >/etc/systemd/system/ray-head.service <<EOF
           [Unit]
           Description=Sklearn Jupyter + Ray Container
           After=network-online.target docker.service
@@ -275,8 +275,8 @@ Resources:
           EOF
 
           systemctl daemon-reload
-          systemctl enable jupyter-notebook.service
-          systemctl start jupyter-notebook.service
+          systemctl enable ray-head.service
+          systemctl start ray-head.service
 
 Outputs:
   InstanceId:
