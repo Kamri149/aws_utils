@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: "2010-09-09"
-Description: TradingBot Ephemeral Ray Head (EC2) - Docker+ECR+systemd; Jupyter via localhost tunnel; Ray head publishes IP to SSM
+Description: TradingBot Single VM (EC2) - Docker+ECR+systemd; Jupyter via localhost tunnel; Ray head enabled; SG allows in-VPC Ray workers (same SG)
 
 Parameters:
   VpcId:
@@ -86,11 +86,6 @@ Parameters:
     Default: "16g"
     Description: "Docker memory limit passed to --memory (set to match your instance RAM)"
 
-  RayHeadSsmParamName:
-    Type: String
-    Default: /tradingbot/ray/head_private_ip
-    Description: "SSM Parameter Store name where the head node writes its private IP for workers to discover."
-
 Conditions:
   EnableSSH: !Not [!Equals [!Ref AllowSshCidr, "0.0.0.0/32"]]
 
@@ -98,16 +93,43 @@ Resources:
   NotebookInstanceSG:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupDescription: Single VM SG (no inbound by default; SSH optional; Jupyter/Ray via localhost tunnel)
+      GroupDescription: Head VM SG (no public inbound by default; SSH optional; Jupyter via localhost tunnel; Ray ports allowed from same SG)
       VpcId: !Ref VpcId
 
-      SecurityGroupIngress: !If
-        - EnableSSH
-        - - IpProtocol: tcp
+      # NOTE: We keep your SSH behaviour as-is, and add intra-SG rules for Ray.
+      SecurityGroupIngress:
+        - !If
+          - EnableSSH
+          - IpProtocol: tcp
             FromPort: 22
             ToPort: 22
             CidrIp: !Ref AllowSshCidr
-        - !Ref "AWS::NoValue"
+          - !Ref "AWS::NoValue"
+
+        # --- Ray head port (workers join here) ---
+        - IpProtocol: tcp
+          FromPort: 6379
+          ToPort: 6379
+          SourceSecurityGroupId: !Ref NotebookInstanceSG
+
+        # --- Ray dashboard (optional, but useful) ---
+        - IpProtocol: tcp
+          FromPort: 8265
+          ToPort: 8265
+          SourceSecurityGroupId: !Ref NotebookInstanceSG
+
+        # --- Ray client port (optional; only if you use ray://) ---
+        - IpProtocol: tcp
+          FromPort: 10001
+          ToPort: 10001
+          SourceSecurityGroupId: !Ref NotebookInstanceSG
+
+        # --- Ray uses additional ephemeral ports for workers/tasks unless fully pinned. ---
+        # Keep this modest but practical for a small cluster; refine later if you pin ports.
+        - IpProtocol: tcp
+          FromPort: 20000
+          ToPort: 20100
+          SourceSecurityGroupId: !Ref NotebookInstanceSG
 
       SecurityGroupEgress:
         - IpProtocol: -1
@@ -125,9 +147,6 @@ Resources:
 
       KeyName: !If [EnableSSH, !Ref KeyName, !Ref "AWS::NoValue"]
       IamInstanceProfile: !Ref EMREC2InstanceProfileName
-
-      # --- Ephemeral head behaviour: shutdown -> terminate (not stop) ---
-      # InstanceInitiatedShutdownBehavior: terminate
 
       NetworkInterfaces:
         - DeviceIndex: 0
@@ -167,7 +186,6 @@ Resources:
           REPO_NAME='${EcrRepoName}'
           IMAGE_TAG='${ImageTag}'
           EXTRA_TAG='${ExtraImageTag}'
-          HEAD_SSM_PARAM='${RayHeadSsmParamName}'
 
           NOTEBOOK_DIR="/home/ec2-user/notebooks"
           CONTAINER_NOTEBOOK_DIR="/workspace"
@@ -200,15 +218,6 @@ Resources:
           aws ecr get-login-password --region "$REGION" \
             | docker login --username AWS --password-stdin "$ECR_URI"
 
-          # Publish head private IP for workers (SSM Parameter Store)
-          HEAD_IP="$(curl -s http://169.254.169.254/latest/meta-data/local-ipv4)"
-          aws ssm put-parameter \
-            --name "$HEAD_SSM_PARAM" \
-            --type "String" \
-            --value "$HEAD_IP" \
-            --overwrite \
-            --region "$REGION"
-
           # Pull default + extra (cached for rollback)
           docker pull "$ECR_URI:$IMAGE_TAG"
           docker pull "$ECR_URI:$EXTRA_TAG" || true
@@ -240,7 +249,12 @@ Resources:
             -e AWS_REGION=$REGION \
             $ECR_URI:$IMAGE_TAG \
             bash -lc " \
-              ray start --head --dashboard-host=0.0.0.0 --dashboard-port=$RAY_DASHBOARD_PORT --disable-usage-stats && \
+              ray start --head \
+                --port=6379 \
+                --dashboard-host=0.0.0.0 --dashboard-port=$RAY_DASHBOARD_PORT \
+                --ray-client-server-port=10001 \
+                --min-worker-port=20000 --max-worker-port=20100 \
+                --disable-usage-stats && \
               exec jupyter lab --no-browser --ip 0.0.0.0 --port $PORT --allow-root --notebook-dir=$CONTAINER_NOTEBOOK_DIR \
                 --IdentityProvider.token='' --ServerApp.password='' \
             "
@@ -267,10 +281,6 @@ Outputs:
   PublicIp:
     Description: Public IPv4 address (this is the "public address" you SSH to)
     Value: !GetAtt NotebookInstance.PublicIp
-
-  RayHeadSsmParamName:
-    Description: SSM parameter name containing the head private IP for workers
-    Value: !Ref RayHeadSsmParamName
 
   SshCommand:
     Description: SSH command (works only if you enabled SSH by setting AllowSshCidr to your IP/32)
