@@ -96,7 +96,6 @@ Resources:
       GroupDescription: Head VM SG (no public inbound by default; SSH optional; Jupyter via localhost tunnel; Ray ports allowed from same SG)
       VpcId: !Ref VpcId
 
-      # Keep your SSH behaviour as-is (conditional public inbound)
       SecurityGroupIngress: !If
         - EnableSSH
         - - IpProtocol: tcp
@@ -113,7 +112,6 @@ Resources:
         - Key: Project
           Value: TradingBot
 
-  # --- Ray intra-SG ingress rules (avoid circular dependency by using separate resources) ---
   RayIngressHeadPort6379:
     Type: AWS::EC2::SecurityGroupIngress
     Properties:
@@ -141,7 +139,7 @@ Resources:
       ToPort: 10001
       SourceSecurityGroupId: !Ref NotebookInstanceSG
 
-  RayIngressWorkerPorts20000_20100:
+  RayIngressWorkerPorts20000To20100:
     Type: AWS::EC2::SecurityGroupIngress
     Properties:
       GroupId: !Ref NotebookInstanceSG
@@ -318,6 +316,7 @@ Outputs:
   SshTunnelCommand:
     Description: SSH tunnel Jupyter to your laptop localhost:${JupyterPort} (requires SSH enabled)
     Value: !Sub "ssh -i /path/to/${KeyName}.pem -L ${JupyterPort}:127.0.0.1:${JupyterPort} ec2-user@${NotebookInstance.PublicIp}"
+
 
 
 # AWSTemplateFormatVersion: "2010-09-09"
