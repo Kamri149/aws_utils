@@ -76,10 +76,10 @@ Parameters:
     Default: "6g"
     Description: "Docker /dev/shm size for Ray object store (e.g. 2g, 6g, 12g)"
 
-  DockerCpuLimit:
-    Type: String
-    Default: "4.0"
-    Description: "Docker CPU limit passed to --cpus (set to match your instance vCPU)"
+  # DockerCpuLimit:
+  #   Type: String
+  #   Default: "4.0"
+  #   Description: "Docker CPU limit passed to --cpus (set to match your instance vCPU)"
 
   DockerMemoryLimit:
     Type: String
@@ -206,7 +206,7 @@ Resources:
           # For Ray shared memory (tune if you change instance size)
           SHM_SIZE='${ShmSize}'
 
-          CPU_LIMIT='${DockerCpuLimit}'
+          # CPU_LIMIT='${DockerCpuLimit}'
           MEM_LIMIT='${DockerMemoryLimit}'
 
           dnf update -y
@@ -247,7 +247,7 @@ Resources:
           ExecStartPre=-/usr/bin/docker rm -f $CONTAINER_NAME
 
           ExecStart=/usr/bin/docker run --name $CONTAINER_NAME \
-            --cpus="$CPU_LIMIT" \
+            # --cpus="$CPU_LIMIT" \
             --memory="$MEM_LIMIT" \
             --shm-size=$SHM_SIZE \
             --ulimit memlock=-1 \
