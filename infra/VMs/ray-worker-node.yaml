@@ -82,10 +82,11 @@ Parameters:
     Default: "6g"
     Description: "Docker /dev/shm size for Ray object store (e.g. 2g, 6g, 12g)"
 
+  # FIX: empty default = no limit (use all CPUs)
   DockerCpuLimit:
     Type: String
-    Default: "4.0"
-    Description: "Docker CPU limit passed to --cpus (set to match your instance vCPU)"
+    Default: ""
+    Description: "Docker CPU limit passed to --cpus (empty = no limit / use all CPUs)"
 
   DockerMemoryLimit:
     Type: String
@@ -118,7 +119,6 @@ Resources:
         - Key: Project
           Value: TradingBot
 
-  # Allow intra-cluster traffic among workers (and head if you later reuse this SG)
   RayIngressWorkerPorts20000To20100:
     Type: AWS::EC2::SecurityGroupIngress
     Properties:
@@ -149,148 +149,301 @@ Resources:
   WorkerInstance:
     Type: AWS::EC2::Instance
     Properties:
-      ImageId: !Ref NotebookAmiId
-      InstanceType: !Ref InstanceType
 
-      KeyName: !If [EnableSSH, !Ref KeyName, !Ref "AWS::NoValue"]
-      IamInstanceProfile: !Ref EMREC2InstanceProfileName
 
-      NetworkInterfaces:
-        - DeviceIndex: 0
-          SubnetId: !Ref SubnetId
-          GroupSet:
-            - !Ref WorkerInstanceSG
-          AssociatePublicIpAddress: true
-          DeleteOnTermination: true
+# AWSTemplateFormatVersion: "2010-09-09"
+# Description: TradingBot Ray WORKER node (EC2) - Docker+ECR+systemd; joins existing Ray head in same VPC; no public inbound by default; SSH optional
 
-      BlockDeviceMappings:
-        - DeviceName: /dev/xvda
-          Ebs:
-            VolumeType: gp3
-            VolumeSize: !Ref VolumeSizeGiB
-            Iops: !Ref VolumeIops
-            Encrypted: true
-            DeleteOnTermination: true
+# Parameters:
+#   VpcId:
+#     Type: AWS::EC2::VPC::Id
+#     Description: Existing VPC ID
 
-      MetadataOptions:
-        HttpEndpoint: enabled
-        HttpTokens: required
-        HttpPutResponseHopLimit: 2
-        InstanceMetadataTags: enabled
+#   SubnetId:
+#     Type: AWS::EC2::Subnet::Id
+#     Description: Subnet for the instance
+#     Default: subnet-0a568c53670a616fc
 
-      Tags:
-        - Key: Name
-          Value: !Sub "tradingbot-ray-worker-${AWS::StackName}"
-        - Key: Project
-          Value: TradingBot
-        - Key: RayRole
-          Value: worker
+#   KeyName:
+#     Type: AWS::EC2::KeyPair::KeyName
+#     Description: Key pair for SSH access (only applied if AllowSshCidr != 0.0.0.0/32)
+#     Default: tradingbot-notebook
 
-      UserData:
-        Fn::Base64: !Sub |
-          #!/bin/bash
-          set -euo pipefail
+#   EMREC2InstanceProfileName:
+#     Type: String
+#     Default: EMR_EC2_DefaultRole
+#     Description: Instance profile NAME
 
-          REGION='${AwsRegion}'
-          REPO_NAME='${EcrRepoName}'
-          IMAGE_TAG='${ImageTag}'
-          EXTRA_TAG='${ExtraImageTag}'
+#   InstanceType:
+#     Type: String
+#     Default: t3.small
 
-          NOTEBOOK_DIR="/home/ec2-user/notebooks"
-          CONTAINER_NOTEBOOK_DIR="/workspace"
+#   VolumeSizeGiB:
+#     Type: Number
+#     Default: 30
 
-          CONTAINER_NAME="container"
-          SHM_SIZE='${ShmSize}'
-          CPU_LIMIT='${DockerCpuLimit}'
-          MEM_LIMIT='${DockerMemoryLimit}'
+#   VolumeIops:
+#     Type: Number
+#     Default: 3000
+#     Description: gp3 IOPS
 
-          HEAD_IP='${HeadPrivateIp}'
-          HEAD_PORT='${RayHeadPort}'
-          HEAD_CLIENT_PORT='${RayClientPort}'
+#   AllowSshCidr:
+#     Type: String
+#     Default: "0.0.0.0/32"
+#     Description: Set to your public IP/32 to enable SSH. Leave default to create NO inbound rules.
 
-          dnf update -y
-          dnf install -y docker amazon-ssm-agent
-          systemctl enable docker
-          systemctl start docker
-          systemctl enable amazon-ssm-agent
-          systemctl start amazon-ssm-agent
+#   AwsRegion:
+#     Type: String
+#     Default: eu-west-2
 
-          usermod -aG docker ec2-user
+#   EcrRepoName:
+#     Type: String
+#     Default: trading-platform
 
-          mkdir -p "$NOTEBOOK_DIR"
-          chown -R ec2-user:ec2-user "$NOTEBOOK_DIR"
+#   ImageTag:
+#     Type: String
+#     Default: sklearn-latest
+#     Description: "ECR image tag to run (default: sklearn-latest)"
 
-          ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
-          ECR_URI="$ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com/$REPO_NAME"
+#   ExtraImageTag:
+#     Type: String
+#     Default: sklearn-5ef3d8e77fc9
+#     Description: "Extra ECR image tag to pre-pull (not run unless ImageTag is changed)"
 
-          aws ecr get-login-password --region "$REGION" \
-            | docker login --username AWS --password-stdin "$ECR_URI"
+#   NotebookAmiId:
+#     Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+#     Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-6.1-x86_64
 
-          docker pull "$ECR_URI:$IMAGE_TAG"
-          docker pull "$ECR_URI:$EXTRA_TAG" || true
+#   # --- Ray head to join ---
+#   HeadPrivateIp:
+#     Type: String
+#     Description: Private IP of the Ray head node (in same VPC)
 
-          cat >/etc/systemd/system/ray-worker.service <<EOF
-          [Unit]
-          Description=Ray Worker Container
-          After=network-online.target docker.service
-          Wants=network-online.target docker.service
+#   RayHeadPort:
+#     Type: Number
+#     Default: 6379
+#     Description: Ray GCS port on head (must match head --port)
 
-          [Service]
-          Restart=always
-          RestartSec=5
+#   RayClientPort:
+#     Type: Number
+#     Default: 10001
+#     Description: Ray Client port on head (must match head --ray-client-server-port)
 
-          ExecStartPre=/bin/bash -lc 'aws ecr get-login-password --region "$REGION" | docker login --username AWS --password-stdin "$ECR_URI"'
-          ExecStartPre=/bin/bash -lc 'docker pull "$ECR_URI:$IMAGE_TAG" || true'
-          ExecStartPre=-/usr/bin/docker rm -f $CONTAINER_NAME
+#   # --- Worker container tuning ---
+#   ShmSize:
+#     Type: String
+#     Default: "6g"
+#     Description: "Docker /dev/shm size for Ray object store (e.g. 2g, 6g, 12g)"
 
-          ExecStart=/usr/bin/docker run --name $CONTAINER_NAME \
-            --cpus="$CPU_LIMIT" \
-            --memory="$MEM_LIMIT" \
-            --shm-size=$SHM_SIZE \
-            --ulimit memlock=-1 \
-            --ulimit nofile=1048576:1048576 \
-            -v $NOTEBOOK_DIR:$CONTAINER_NOTEBOOK_DIR \
-            -e AWS_REGION=$REGION \
-            $ECR_URI:$IMAGE_TAG \
-            bash -lc " \
-              ray start \
-                --address=$HEAD_IP:$HEAD_PORT \
-                --min-worker-port=20000 --max-worker-port=20100 \
-                --disable-usage-stats && \
-              tail -f /dev/null \
-            "
+#   DockerCpuLimit:
+#     Type: String
+#     Default: "4.0"
+#     Description: "Docker CPU limit passed to --cpus (set to match your instance vCPU)"
 
-          ExecStop=/usr/bin/docker stop $CONTAINER_NAME
+#   DockerMemoryLimit:
+#     Type: String
+#     Default: "16g"
+#     Description: "Docker memory limit passed to --memory (set to match your instance RAM)"
 
-          [Install]
-          WantedBy=multi-user.target
-          EOF
+# Conditions:
+#   EnableSSH: !Not [!Equals [!Ref AllowSshCidr, "0.0.0.0/32"]]
 
-          systemctl daemon-reload
-          systemctl enable ray-worker.service
-          systemctl start ray-worker.service
+# Resources:
+#   WorkerInstanceSG:
+#     Type: AWS::EC2::SecurityGroup
+#     Properties:
+#       GroupDescription: Worker VM SG (no inbound by default; SSH optional; Ray ports allowed from same SG)
+#       VpcId: !Ref VpcId
 
-Outputs:
-  InstanceId:
-    Description: EC2 Instance ID
-    Value: !Ref WorkerInstance
+#       SecurityGroupIngress: !If
+#         - EnableSSH
+#         - - IpProtocol: tcp
+#             FromPort: 22
+#             ToPort: 22
+#             CidrIp: !Ref AllowSshCidr
+#         - !Ref "AWS::NoValue"
 
-  PrivateIp:
-    Description: Private IP address
-    Value: !GetAtt WorkerInstance.PrivateIp
+#       SecurityGroupEgress:
+#         - IpProtocol: -1
+#           CidrIp: 0.0.0.0/0
 
-  PublicIp:
-    Description: Public IPv4 address
-    Value: !GetAtt WorkerInstance.PublicIp
+#       Tags:
+#         - Key: Project
+#           Value: TradingBot
 
-  SshCommand:
-    Description: SSH command (works only if you enabled SSH by setting AllowSshCidr to your IP/32)
-    Value: !Sub "ssh -i /path/to/${KeyName}.pem ec2-user@${WorkerInstance.PublicIp}"
+#   # Allow intra-cluster traffic among workers (and head if you later reuse this SG)
+#   RayIngressWorkerPorts20000To20100:
+#     Type: AWS::EC2::SecurityGroupIngress
+#     Properties:
+#       GroupId: !Ref WorkerInstanceSG
+#       IpProtocol: tcp
+#       FromPort: 20000
+#       ToPort: 20100
+#       SourceSecurityGroupId: !Ref WorkerInstanceSG
 
-  WorkerServiceStatus:
-    Description: Check worker service status (run on instance)
-    Value: "sudo systemctl status ray-worker.service --no-pager"
+#   RayIngressHeadPort6379FromSameSG:
+#     Type: AWS::EC2::SecurityGroupIngress
+#     Properties:
+#       GroupId: !Ref WorkerInstanceSG
+#       IpProtocol: tcp
+#       FromPort: 6379
+#       ToPort: 6379
+#       SourceSecurityGroupId: !Ref WorkerInstanceSG
 
-  WorkerLogsCommand:
-    Description: Tail worker container logs (run on instance)
-    Value: "sudo docker logs container --tail 200"
+#   RayIngressClient10001FromSameSG:
+#     Type: AWS::EC2::SecurityGroupIngress
+#     Properties:
+#       GroupId: !Ref WorkerInstanceSG
+#       IpProtocol: tcp
+#       FromPort: 10001
+#       ToPort: 10001
+#       SourceSecurityGroupId: !Ref WorkerInstanceSG
+
+#   WorkerInstance:
+#     Type: AWS::EC2::Instance
+#     Properties:
+#       ImageId: !Ref NotebookAmiId
+#       InstanceType: !Ref InstanceType
+
+#       KeyName: !If [EnableSSH, !Ref KeyName, !Ref "AWS::NoValue"]
+#       IamInstanceProfile: !Ref EMREC2InstanceProfileName
+
+#       NetworkInterfaces:
+#         - DeviceIndex: 0
+#           SubnetId: !Ref SubnetId
+#           GroupSet:
+#             - !Ref WorkerInstanceSG
+#           AssociatePublicIpAddress: true
+#           DeleteOnTermination: true
+
+#       BlockDeviceMappings:
+#         - DeviceName: /dev/xvda
+#           Ebs:
+#             VolumeType: gp3
+#             VolumeSize: !Ref VolumeSizeGiB
+#             Iops: !Ref VolumeIops
+#             Encrypted: true
+#             DeleteOnTermination: true
+
+#       MetadataOptions:
+#         HttpEndpoint: enabled
+#         HttpTokens: required
+#         HttpPutResponseHopLimit: 2
+#         InstanceMetadataTags: enabled
+
+#       Tags:
+#         - Key: Name
+#           Value: !Sub "tradingbot-ray-worker-${AWS::StackName}"
+#         - Key: Project
+#           Value: TradingBot
+#         - Key: RayRole
+#           Value: worker
+
+#       UserData:
+#         Fn::Base64: !Sub |
+#           #!/bin/bash
+#           set -euo pipefail
+
+#           REGION='${AwsRegion}'
+#           REPO_NAME='${EcrRepoName}'
+#           IMAGE_TAG='${ImageTag}'
+#           EXTRA_TAG='${ExtraImageTag}'
+
+#           NOTEBOOK_DIR="/home/ec2-user/notebooks"
+#           CONTAINER_NOTEBOOK_DIR="/workspace"
+
+#           CONTAINER_NAME="container"
+#           SHM_SIZE='${ShmSize}'
+#           CPU_LIMIT='${DockerCpuLimit}'
+#           MEM_LIMIT='${DockerMemoryLimit}'
+
+#           HEAD_IP='${HeadPrivateIp}'
+#           HEAD_PORT='${RayHeadPort}'
+#           HEAD_CLIENT_PORT='${RayClientPort}'
+
+#           dnf update -y
+#           dnf install -y docker amazon-ssm-agent
+#           systemctl enable docker
+#           systemctl start docker
+#           systemctl enable amazon-ssm-agent
+#           systemctl start amazon-ssm-agent
+
+#           usermod -aG docker ec2-user
+
+#           mkdir -p "$NOTEBOOK_DIR"
+#           chown -R ec2-user:ec2-user "$NOTEBOOK_DIR"
+
+#           ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
+#           ECR_URI="$ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com/$REPO_NAME"
+
+#           aws ecr get-login-password --region "$REGION" \
+#             | docker login --username AWS --password-stdin "$ECR_URI"
+
+#           docker pull "$ECR_URI:$IMAGE_TAG"
+#           docker pull "$ECR_URI:$EXTRA_TAG" || true
+
+#           cat >/etc/systemd/system/ray-worker.service <<EOF
+#           [Unit]
+#           Description=Ray Worker Container
+#           After=network-online.target docker.service
+#           Wants=network-online.target docker.service
+
+#           [Service]
+#           Restart=always
+#           RestartSec=5
+
+#           ExecStartPre=/bin/bash -lc 'aws ecr get-login-password --region "$REGION" | docker login --username AWS --password-stdin "$ECR_URI"'
+#           ExecStartPre=/bin/bash -lc 'docker pull "$ECR_URI:$IMAGE_TAG" || true'
+#           ExecStartPre=-/usr/bin/docker rm -f $CONTAINER_NAME
+
+#           ExecStart=/usr/bin/docker run --name $CONTAINER_NAME \
+#             --cpus="$CPU_LIMIT" \
+#             --memory="$MEM_LIMIT" \
+#             --shm-size=$SHM_SIZE \
+#             --ulimit memlock=-1 \
+#             --ulimit nofile=1048576:1048576 \
+#             -v $NOTEBOOK_DIR:$CONTAINER_NOTEBOOK_DIR \
+#             -e AWS_REGION=$REGION \
+#             $ECR_URI:$IMAGE_TAG \
+#             bash -lc " \
+#               ray start \
+#                 --address=$HEAD_IP:$HEAD_PORT \
+#                 --min-worker-port=20000 --max-worker-port=20100 \
+#                 --disable-usage-stats && \
+#               tail -f /dev/null \
+#             "
+
+#           ExecStop=/usr/bin/docker stop $CONTAINER_NAME
+
+#           [Install]
+#           WantedBy=multi-user.target
+#           EOF
+
+#           systemctl daemon-reload
+#           systemctl enable ray-worker.service
+#           systemctl start ray-worker.service
+
+# Outputs:
+#   InstanceId:
+#     Description: EC2 Instance ID
+#     Value: !Ref WorkerInstance
+
+#   PrivateIp:
+#     Description: Private IP address
+#     Value: !GetAtt WorkerInstance.PrivateIp
+
+#   PublicIp:
+#     Description: Public IPv4 address
+#     Value: !GetAtt WorkerInstance.PublicIp
+
+#   SshCommand:
+#     Description: SSH command (works only if you enabled SSH by setting AllowSshCidr to your IP/32)
+#     Value: !Sub "ssh -i /path/to/${KeyName}.pem ec2-user@${WorkerInstance.PublicIp}"
+
+#   WorkerServiceStatus:
+#     Description: Check worker service status (run on instance)
+#     Value: "sudo systemctl status ray-worker.service --no-pager"
+
+#   WorkerLogsCommand:
+#     Description: Tail worker container logs (run on instance)
+#     Value: "sudo docker logs container --tail 200"
