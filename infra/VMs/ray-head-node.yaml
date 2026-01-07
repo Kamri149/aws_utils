@@ -130,14 +130,14 @@ Resources:
       ToPort: 8265
       SourceSecurityGroupId: !Ref NotebookInstanceSG
 
-  RayIngressClient10001:
-    Type: AWS::EC2::SecurityGroupIngress
-    Properties:
-      GroupId: !Ref NotebookInstanceSG
-      IpProtocol: tcp
-      FromPort: 10001
-      ToPort: 10001
-      SourceSecurityGroupId: !Ref NotebookInstanceSG
+  # RayIngressClient10001:
+  #   Type: AWS::EC2::SecurityGroupIngress
+  #   Properties:
+  #     GroupId: !Ref NotebookInstanceSG
+  #     IpProtocol: tcp
+  #     FromPort: 10001
+  #     ToPort: 10001
+  #     SourceSecurityGroupId: !Ref NotebookInstanceSG
 
   RayIngressWorkerPorts20000To20100:
     Type: AWS::EC2::SecurityGroupIngress
@@ -266,7 +266,7 @@ Resources:
               ray start --head \
                 --port=6379 \
                 --dashboard-host=0.0.0.0 --dashboard-port=$RAY_DASHBOARD_PORT \
-                --ray-client-server-port=10001 \
+                # --ray-client-server-port=10001 \
                 --min-worker-port=20000 --max-worker-port=20100 \
                 --disable-usage-stats && \
               exec jupyter lab --no-browser --ip 0.0.0.0 --port $PORT --allow-root --notebook-dir=$CONTAINER_NOTEBOOK_DIR \
