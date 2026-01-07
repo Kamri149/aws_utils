@@ -262,29 +262,27 @@ Resources:
           ExecStartPre=-/usr/bin/docker rm -f $CONTAINER_NAME
 
           ExecStart=/usr/bin/docker run --name $CONTAINER_NAME \
+            --network host \
             $CPU_FLAG \
             --memory="$MEM_LIMIT" \
             --shm-size=$SHM_SIZE \
             --ulimit memlock=-1 \
             --ulimit nofile=1048576:1048576 \
-            -p 127.0.0.1:$PORT:$PORT \
-            -p 127.0.0.1:$RAY_DASHBOARD_PORT:$RAY_DASHBOARD_PORT \
             -v $NOTEBOOK_DIR:$CONTAINER_NOTEBOOK_DIR \
             -e AWS_REGION=$REGION \
-            -e EC2_PRIVATE_IP=$EC2_PRIVATE_IP \
             $ECR_URI:$IMAGE_TAG \
-            bash -lc " \
-              echo EC2_PRIVATE_IP=$EC2_PRIVATE_IP && \
+            bash -lc 'EC2_PRIVATE_IP=$(curl -s http://169.254.169.254/latest/meta-data/local-ipv4); \
+              echo EC2_PRIVATE_IP=$EC2_PRIVATE_IP; \
               ray start --head \
                 --node-ip-address=$EC2_PRIVATE_IP \
                 --port=6379 \
-                --dashboard-host=0.0.0.0 --dashboard-port=$RAY_DASHBOARD_PORT \
+                --dashboard-host=127.0.0.1 --dashboard-port='"$RAY_DASHBOARD_PORT"' \
                 --min-worker-port=20000 --max-worker-port=20100 \
-                --disable-usage-stats && \
-              exec jupyter lab --no-browser --ip 0.0.0.0 --port $PORT --allow-root --notebook-dir=$CONTAINER_NOTEBOOK_DIR \
-                --IdentityProvider.token='' --ServerApp.password='' \
-            "
-            # --ray-client-server-port=10001 \
+                --disable-usage-stats; \
+              exec jupyter lab --no-browser --ip 127.0.0.1 --port '"$PORT"' --allow-root --notebook-dir='"$CONTAINER_NOTEBOOK_DIR"' \
+                --IdentityProvider.token="" --ServerApp.password=""'
+          # --ray-client-server-port=10001 \
+
 
           ExecStop=/usr/bin/docker stop $CONTAINER_NAME
 
