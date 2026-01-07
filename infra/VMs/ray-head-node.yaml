@@ -266,12 +266,12 @@ Resources:
               ray start --head \
                 --port=6379 \
                 --dashboard-host=0.0.0.0 --dashboard-port=$RAY_DASHBOARD_PORT \
-                # --ray-client-server-port=10001 \
                 --min-worker-port=20000 --max-worker-port=20100 \
                 --disable-usage-stats && \
               exec jupyter lab --no-browser --ip 0.0.0.0 --port $PORT --allow-root --notebook-dir=$CONTAINER_NOTEBOOK_DIR \
                 --IdentityProvider.token='' --ServerApp.password='' \
             "
+            # --ray-client-server-port=10001 \
 
           ExecStop=/usr/bin/docker stop $CONTAINER_NAME
 
