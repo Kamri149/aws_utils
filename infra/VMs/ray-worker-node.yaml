@@ -250,6 +250,7 @@ Resources:
           ExecStartPre=-/usr/bin/docker rm -f $CONTAINER_NAME
 
           ExecStart=/usr/bin/docker run --name $CONTAINER_NAME \
+            --network host \
             $CPU_FLAG  \
             --memory="$MEM_LIMIT" \
             --shm-size=$SHM_SIZE \
