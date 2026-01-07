@@ -271,11 +271,12 @@ Resources:
             -p 127.0.0.1:$RAY_DASHBOARD_PORT:$RAY_DASHBOARD_PORT \
             -v $NOTEBOOK_DIR:$CONTAINER_NOTEBOOK_DIR \
             -e AWS_REGION=$REGION \
-            -e EC2_PRIVATE_IP=\$EC2_PRIVATE_IP \
+            -e EC2_PRIVATE_IP=$EC2_PRIVATE_IP \
             $ECR_URI:$IMAGE_TAG \
             bash -lc " \
+              echo EC2_PRIVATE_IP=$EC2_PRIVATE_IP && \
               ray start --head \
-                --node-ip-address=\$EC2_PRIVATE_IP \
+                --node-ip-address=$EC2_PRIVATE_IP \
                 --port=6379 \
                 --dashboard-host=0.0.0.0 --dashboard-port=$RAY_DASHBOARD_PORT \
                 --min-worker-port=20000 --max-worker-port=20100 \
