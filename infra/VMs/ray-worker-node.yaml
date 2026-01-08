@@ -61,6 +61,12 @@ Parameters:
     Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
     Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-6.1-x86_64
 
+  # --- Use pre-defined SG ---
+  WorkerSecurityGroupId:
+    Type: AWS::EC2::SecurityGroup::Id
+    Default: sg-07c9f4fdf35794ff7
+    Description: Pre-existing worker security group (ray-worker-node-sg)
+
   # --- Ray head to join ---
   HeadPrivateIp:
     Type: String
@@ -109,7 +115,7 @@ Resources:
         - DeviceIndex: 0
           SubnetId: !Ref SubnetId
           GroupSet:
-            - sg-07c9f4fdf35794ff7   # <-- EXISTING ray-worker-node-sg
+            - !Ref WorkerSecurityGroupId
           AssociatePublicIpAddress: true
           DeleteOnTermination: true
 
