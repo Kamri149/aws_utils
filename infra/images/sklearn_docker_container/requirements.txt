@@ -21,7 +21,7 @@ scikit-learn==1.5.2
 # RL / ML
 gymnasium==1.1.1
 # ray[rllib]==2.53.0
-ray[default]==2.53.0
+Using ray[default,tune]==2.53.0
 torch==2.1.2+cpu
 
 # Experiment tracking
