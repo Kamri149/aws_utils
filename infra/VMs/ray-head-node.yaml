@@ -179,7 +179,7 @@ Resources:
           Restart=always
           RestartSec=5
 
-          ExecStartPre=-/usr/bin/docker rm -f ${CONTAINER_NAME}
+          ExecStartPre=-/usr/bin/docker rm -f $CONTAINER_NAME
 
           ExecStart=/bin/bash -lc '\
             /usr/bin/docker run --name "$CONTAINER_NAME" \
@@ -211,7 +211,7 @@ Resources:
               " \
           '
 
-          ExecStop=/usr/bin/docker stop ${CONTAINER_NAME}
+          ExecStop=/usr/bin/docker stop $CONTAINER_NAME
 
           [Install]
           WantedBy=multi-user.target
