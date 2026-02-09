@@ -1,5 +1,5 @@
 [project]
-name = "trading-platform"
+name = "aws-utils"
 version = "0.1.0"
 requires-python = ">=3.10"
 dependencies = []
@@ -8,5 +8,5 @@ dependencies = []
 requires = ["setuptools"]
 build-backend = "setuptools.build_meta"
 
-[tool.setuptools]
-packages = ["trading", "binance"]
+# [tool.setuptools]
+# packages = []
